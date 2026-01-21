@@ -1,0 +1,17 @@
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+
+# Environments
+.venv/
+__pycache__/
+
+# Workflow cache
+.workflows/_skills_cache/
+
+# Git metadata (stored outside default .git dir)
+.git-store/
