@@ -24,7 +24,7 @@
 
 - 失败项 ID、证据、修复建议、复验命令
 
-## 6. Required Skills
+## 6. Require Skills
 
 - **Required**: `NONE` | `UNSPECIFIED` | `<skill_id_1>, <skill_id_2>...`
 - **Recommended**: `NONE` | `<skill_id_...>`（可选）

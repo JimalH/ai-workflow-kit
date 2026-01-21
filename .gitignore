@@ -11,7 +11,7 @@ Thumbs.db
 __pycache__/
 
 # Workflow cache
-.workflows/_skills_cache/
+.workflow/workflows/_skills_cache/
 
 # Git metadata (stored outside default .git dir)
 .git-store/

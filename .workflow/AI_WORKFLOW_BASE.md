@@ -1,7 +1,8 @@
-# AI_LOADER.md — 通用启动器（适配任意 AI / Agent 平台）
+# AI_WORKFLOW_BASE.md — 工作流基础规则（长期版）
 
-> 目的：把本仓库的“工作流体系（BASE + Roles + Chat Protocol + Skills）”变成任何 AI 都能遵循的统一启动/执行流程。  
-> 用法：复制到你所用平台的“全局指令/系统提示/项目规则”，或让 AI 每次会话开始先阅读本文件。
+> 本文件是“长期版规则/规范”（较长）。  
+> 各平台入口文件只需要一个很短的 stub，指向 `.workflow/AI_LOADER.md`（短版自举入口）。  
+> 执行顺序：先读 `.workflow/AI_LOADER.md` → 再读本文件 `.workflow/AI_WORKFLOW_BASE.md` → 再读当前 workflow 的 `BASE.md` 与角色手册。
 
 ---
 
@@ -22,16 +23,16 @@
 
 ## 1) 固定仓库结构（写死）
 仓库根目录必须存在：
-- `.workflows/`
-- `.roles/`
+- `.workflow/workflows/`
+- `.workflow/roles/`
 
 关键文件：
-- `.workflows/ACTIVE_WORKFLOW.txt`  → 当前启用的 workflow_slug
-- `.workflows/CHAT_PROTOCOL.md`     → 通用传输层协议
-- `.workflows/<workflow_slug>/BASE.md`
-- `.roles/<Role>.md`
-- `.workflows/<workflow_slug>/promptbook/`（若该 workflow 使用 promptbook 作为 SSOT）
-- `.workflows/_skills_cache/`（统一 skills 缓存目录）
+- `.workflow/workflows/ACTIVE_WORKFLOW.txt`  → 当前启用的 workflow_slug
+- `.workflow/workflows/CHAT_PROTOCOL.md`     → 通用传输层协议
+- `.workflow/workflows/<workflow_slug>/BASE.md`
+- `.workflow/roles/<Role>.md`
+- `.workflow/workflows/<workflow_slug>/promptbook/`（若该 workflow 使用 promptbook 作为 SSOT）
+- `.workflow/workflows/_skills_cache/`（统一 skills 缓存目录）
 
 ---
 
@@ -51,10 +52,10 @@
 > 任何输出（实现/验收/写 SSOT/发 chat）之前，必须按顺序执行。
 
 ### Step 1 — 读取工作流配置
-1) 读 `.workflows/ACTIVE_WORKFLOW.txt` 得到 `<workflow_slug>`
-2) 读 `.workflows/CHAT_PROTOCOL.md`
-3) 读 `.workflows/<workflow_slug>/BASE.md`（提取 Roles Registry / SSOT 定义 / Skills Policy / **Permissions Policy**）
-4) 读 `.roles/<ROLE>.md`（若组合角色则读多个）
+1) 读 `.workflow/workflows/ACTIVE_WORKFLOW.txt` 得到 `<workflow_slug>`
+2) 读 `.workflow/workflows/CHAT_PROTOCOL.md`
+3) 读 `.workflow/workflows/<workflow_slug>/BASE.md`（提取 Roles Registry / SSOT 定义 / Skills Policy / **Permissions Policy**）
+4) 读 `.workflow/roles/<ROLE>.md`（若组合角色则读多个）
 
 ### Step 2 — Permissions Bootstrap（强制）
 - 你可以在平台侧被授予“无需询问即可编辑/运行命令”等能力，但**必须**遵守当前 BASE 的：
@@ -62,15 +63,15 @@
 - 若不确定某动作是否允许：**必须询问用户**（BASE 规则优先）。
 
 ### Step 3 — Skills Bootstrap（若角色要求）
-- 读取 `.roles/<ROLE>.md` 的 `Required Skills` 段
+- 读取 `.workflow/roles/<ROLE>.md` 的 `Required Skills` 段
 - 遵守 `BASE.md` 的 Skills Policy：
   - allowlist only
-  - 缓存到 `.workflows/_skills_cache/` 并固定 commit/tag
+  - 缓存到 `.workflow/workflows/_skills_cache/` 并固定 commit/tag
   - 默认只加载指令文件；禁止自动执行脚本/二进制（除非 BASE/用户明确允许）
   - 安装/使用必须写入 SSOT 的 Change Log（或 BASE 指定位置）
 
 ### Step 4 — 处理跨 AI chat（每轮优先）
-在 `.workflows/<workflow_slug>/` 查找 `temp_chat_*.txt`：
+在 `.workflow/workflows/<workflow_slug>/` 查找 `temp_chat_*.txt`：
 - 若多个 OPEN：选择最近修改时间最新的
 - 按 CHAT_PROTOCOL 使用 `_editing` 重命名锁
 - 更新自己的 `Last read`

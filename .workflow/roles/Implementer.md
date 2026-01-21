@@ -25,7 +25,7 @@
 
 - 变更内容、运行方式、与 AC/TASK 的对应关系
 
-## 6. Required Skills
+## 6. Require Skills
 
 - **Required**: `NONE` | `UNSPECIFIED` | `<skill_id_1>, <skill_id_2>...`
 - **Recommended**: `NONE` | `<skill_id_...>`（可选）

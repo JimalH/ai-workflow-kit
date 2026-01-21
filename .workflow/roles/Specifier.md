@@ -105,7 +105,7 @@
 
 ---
 
-## 6. Required Skills（固定段落）
+## 6. Require Skills
 
 - **Required**: `NONE` | `UNSPECIFIED` | `<skill_id_1>, <skill_id_2>...`
 - **Recommended**: `NONE` | `<skill_id_...>`（可选）

@@ -63,3 +63,24 @@ BASE 至少包含：
 - SSOT：除 append-only 章节外必须就地修改；禁止文末再写一套结构
 - Chat：只允许改 header（Last read/Status）与消息 header 的 FLAG；旧正文禁止改动
 - 冲突优先保证 SSOT 一致性，再补充 chat 说明
+
+
+---
+
+## Entry Stub（推荐写法）
+在任意项目仓库中，只需要保证平台会首先读取到一个“入口 stub”，其内容指向 `AI_LOADER.md`。
+
+推荐使用标记块（便于幂等更新，不破坏原文件）：
+
+```md
+<!-- BEGIN AI_WORKFLOW_LOADER_BLOCK -->
+You MUST read and follow ./AI_LOADER.md before doing any work.
+<!-- END AI_WORKFLOW_LOADER_BLOCK -->
+```
+
+平台入口文件路径：
+- Codex：`AGENTS.md`
+- Claude Code：`.claude/CLAUDE.md`
+- Antigravity：`.agent/rules/GEMINI.md`
+
+当 `.workflows/` 与 `.roles/` 缺失时，由 `AI_LOADER.md` 执行自举安装。

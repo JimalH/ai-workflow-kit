@@ -4,6 +4,8 @@
 需求写入 Promptbook（SSOT）→ Implementer 实现 → Validator 按 AC 验收 → 失败打回修复 → 循环直到通过。
 
 ## 2. Artifacts & SSOT
+- Workflow Loader：`AI_LOADER.md`
+- Workflow Base Rules：`AI_WORKFLOW_BASE.md`
 - SSOT：`.workflows/relay_accept_change/promptbook/` 下最新 `P-####.md`
 - Chat Protocol：`.workflows/CHAT_PROTOCOL.md`
 - Skills cache：`.workflows/_skills_cache/`

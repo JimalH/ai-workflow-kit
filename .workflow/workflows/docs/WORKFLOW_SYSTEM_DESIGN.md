@@ -104,3 +104,21 @@ allowlist only：
 - append-only：仅 BASE 指定章节允许追加（常见：Change Log、Validation Report）
 - 禁止预写空结构/占位符
 - PASS 必须证据（由 BASE 定义）
+
+
+---
+
+## Entry Points（平台入口文件）
+为减少“每个 repo 复制整套文件”的成本，本系统采用“两层入口”：
+
+- **短入口（自举）**：`AI_LOADER.md`
+  - 负责：缺文件时从 GitHub 拉取/安装 `.workflows/` 与 `.roles/`，并修复平台入口文件（stub）
+- **长期版规则（规范）**：`AI_WORKFLOW_BASE.md`
+  - 负责：Bootstrap Sequence、SSOT 写入纪律、Skills/Permissions 总规则
+
+各平台入口文件只需保持很短，并包含指向 `AI_LOADER.md` 的标记块：
+- Codex：`AGENTS.md`
+- Claude Code：`.claude/CLAUDE.md`
+- Antigravity：`.agent/rules/GEMINI.md`
+
+原则：入口越短越稳定；复杂逻辑放在 `AI_LOADER.md` / `AI_WORKFLOW_BASE.md`。
