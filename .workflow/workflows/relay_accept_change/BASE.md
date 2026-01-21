@@ -6,9 +6,9 @@
 ## 2. Artifacts & SSOT
 - Workflow Loader：`AI_LOADER.md`
 - Workflow Base Rules：`AI_WORKFLOW_BASE.md`
-- SSOT：`.workflows/relay_accept_change/promptbook/` 下最新 `P-####.md`
-- Chat Protocol：`.workflows/CHAT_PROTOCOL.md`
-- Skills cache：`.workflows/_skills_cache/`
+- SSOT：`.workflow/workflows/relay_accept_change/promptbook/` 下最新 `P-####.md`
+- Chat Protocol：`.workflow/workflows/CHAT_PROTOCOL.md`
+- Skills cache：`.workflow/workflows/_skills_cache/`
 
 ## 3. Roles Registry (machine-readable)
 - Allowed Roles: [Specifier, Implementer, Validator]
@@ -44,11 +44,11 @@ handoff 必须包含：角色切换信息 + 当前状态 + 修复建议 + 复验
 ### Allowed without asking (in-scope)
 Agent MAY edit/create files WITHOUT asking only if ALL are true:
 - Scope 白名单（仅限以下路径）：
-  - `.workflows/relay_accept_change/...`
-  - `.workflows/CHAT_PROTOCOL.md`
-  - `.workflows/ACTIVE_WORKFLOW.txt`（仅当用户要求切换工作流）
-  - `.workflows/docs/...`（设计/指导文档）
-  - `.roles/...`
+  - `.workflow/workflows/relay_accept_change/...`
+  - `.workflow/workflows/CHAT_PROTOCOL.md`
+  - `.workflow/workflows/ACTIVE_WORKFLOW.txt`（仅当用户要求切换工作流）
+  - `.workflow/workflows/docs/...`（设计/指导文档）
+  - `.workflow/roles/...`
 - 非破坏性：不删除文件夹、不大规模移动/重命名、不做不可逆迁移。
 - 遵守 SSOT 写入纪律：canonical + append-only。
 
@@ -78,7 +78,7 @@ Agent MUST ask before:
   - https://github.com/anthropics/skills
   - https://github.com/rominirani/antigravity-skills
   - https://github.com/sickn33/antigravity-awesome-skills
-- 缓存：一律拉取到 `.workflows/_skills_cache/` 并固定 commit/tag
+- 缓存：一律拉取到 `.workflow/workflows/_skills_cache/` 并固定 commit/tag
 - 默认只加载指令文件；禁止自动执行 skill 内脚本/二进制（除非用户/BASE 明确允许并记录证据）
 - 使用/安装记录必须写入 Promptbook 的 Change Log（repo+commit/tag+路径+安装目标/手动步骤）
 

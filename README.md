@@ -21,6 +21,9 @@ You MUST read and follow ./.workflow/AI_LOADER.md before doing any work.
 ### Pinning
 Prefer pinning bootstrap to a tag (e.g., `v0.1.0`) instead of `main` for stability.
 
+### None mode
+- Set `ACTIVE_WORKFLOW.txt` to `none` to disable workflow SSOT/promptbook rules and keep only minimal safety. Roles are optional unless explicitly assigned. The minimal policy lives at `.workflow/workflows/none/BASE.md`.
+
 
 ## Using in a New Repo
 1) Copy the `.workflow/` directory into the target repo root (contains loader, base rules, workflows, and roles).

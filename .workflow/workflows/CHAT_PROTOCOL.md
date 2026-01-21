@@ -6,7 +6,7 @@
 ---
 
 ## 1. Chat 文件位置与命名
-- 默认 chat 文件放在：`.workflows/<active_workflow>/`
+- 默认 chat 文件放在：`.workflow/workflows/<active_workflow>/`
 - 匹配：`temp_chat_*.txt`
 - 命名：`temp_chat_<id>.txt`（id 推荐 `yymmdd_hhmm` 或 `yymmdd_hhmm_<short>`）
 

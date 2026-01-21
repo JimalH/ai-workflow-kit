@@ -13,35 +13,41 @@
 - **Permissions（授权边界层）**：允许 agent 在何种范围内“不问直接 edit/执行”，以及哪些动作必须询问用户。
 
 优先级：  
-`BASE.md（当前工作流） > CHAT_PROTOCOL.md > .roles/<Role>.md > Skills`
+`BASE.md（当前工作流） > CHAT_PROTOCOL.md > .workflow/roles/<Role>.md > Skills`
 
 ---
 
 ## 2. 固定目录结构（写死）
 ```text
-/.workflows/
-  CHAT_PROTOCOL.md
-  ACTIVE_WORKFLOW.txt
-  _skills_cache/
-  docs/
-    WORKFLOW_SYSTEM_DESIGN.md
-    WORKFLOW_SYSTEM_DESIGN_GUIDE.md
-  <workflow_slug>/
-    BASE.md
-    .commands/
-      <command>.md
-    promptbook/
-      P-0001.md
-      ...
+/.workflow/
+  AI_LOADER.md
+  AI_WORKFLOW_BASE.md
+  workflows/
+    CHAT_PROTOCOL.md
+    ACTIVE_WORKFLOW.txt
+    _skills_cache/
+    docs/
+      WORKFLOW_SYSTEM_DESIGN.md
+      WORKFLOW_SYSTEM_DESIGN_GUIDE.md
+    none/
+      BASE.md
+    <workflow_slug>/
+      BASE.md
+      .commands/
+        <command>.md
+      promptbook/
+        P-0001.md
+        ...
+  roles/
+    <Role>.md
 
-/.roles/
-  <Role>.md
+none workflow_slug: `.workflow/workflows/none/BASE.md` — minimal safety only (no promptbook/SSOT; roles optional unless explicitly assigned).
 ```
 
 ---
 
 ## 3. ACTIVE_WORKFLOW.txt
-- `.workflows/ACTIVE_WORKFLOW.txt` 只有一行：当前 `workflow_slug`
+- `.workflow/workflows/ACTIVE_WORKFLOW.txt` 只有一行：当前 `workflow_slug`
 - 所有 AI 以此确定“当前启用工作流”
 
 ---
@@ -79,7 +85,7 @@
 ---
 
 ## 6. Chat Protocol（通用）
-- `.workflows/CHAT_PROTOCOL.md` 只定义传输机制，不定义业务语义
+- `.workflow/workflows/CHAT_PROTOCOL.md` 只定义传输机制，不定义业务语义
 - TYPE 语义、归档策略等放在 workflow 的 `BASE.md`
 
 ---
@@ -91,7 +97,7 @@ allowlist only：
 - https://github.com/rominirani/antigravity-skills
 - https://github.com/sickn33/antigravity-awesome-skills
 
-统一缓存目录：`.workflows/_skills_cache/`  
+统一缓存目录：`.workflow/workflows/_skills_cache/`  
 规则：
 - 固定 commit/tag
 - 默认只加载指令文件；禁止自动执行脚本/二进制（除非 BASE/用户明确允许）
@@ -112,7 +118,7 @@ allowlist only：
 为减少“每个 repo 复制整套文件”的成本，本系统采用“两层入口”：
 
 - **短入口（自举）**：`AI_LOADER.md`
-  - 负责：缺文件时从 GitHub 拉取/安装 `.workflows/` 与 `.roles/`，并修复平台入口文件（stub）
+  - 负责：缺文件时从 GitHub 拉取/安装 `.workflow/workflows/` 与 `.workflow/roles/`，并修复平台入口文件（stub）
 - **长期版规则（规范）**：`AI_WORKFLOW_BASE.md`
   - 负责：Bootstrap Sequence、SSOT 写入纪律、Skills/Permissions 总规则
 

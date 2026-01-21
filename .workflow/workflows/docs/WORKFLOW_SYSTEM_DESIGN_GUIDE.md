@@ -3,23 +3,24 @@
 本手册是 runbook：让任何 AI 按步骤执行即可，不依赖隐含经验。
 
 ---
+none ???workflow_slug=none???? minimal safety?? promptbook/SSOT????????????
 
 ## A. 启动流程（任何 AI 进入仓库后必须做）
-1) 读 `.workflows/ACTIVE_WORKFLOW.txt`
-2) 读 `.workflows/CHAT_PROTOCOL.md`
-3) 读 `.workflows/<workflow_slug>/BASE.md`（必须包含 Roles Registry + Permissions Policy）
+1) 读 `.workflow/workflows/ACTIVE_WORKFLOW.txt`
+2) 读 `.workflow/workflows/CHAT_PROTOCOL.md`
+3) 读 `.workflow/workflows/<workflow_slug>/BASE.md`（必须包含 Roles Registry + Permissions Policy）
 4) 从 BASE 的 `Allowed Roles` 中确认 ROLE（用户指派为准；未指派只问一次）
-5) 读 `.roles/<ROLE>.md`
+5) 读 `.workflow/roles/<ROLE>.md`
 6) 每轮先处理 chat，再做实现/验收/写 SSOT
 
 ---
 
 ## B. 新建工作流（workflow_slug）时必须创建
-- `.workflows/<workflow_slug>/BASE.md`
-- `.workflows/<workflow_slug>/.commands/`（可空，但建议存在）
-- （如用 Promptbook）`.workflows/<workflow_slug>/promptbook/P-0001.md`
-- （如需新角色）`.roles/<Role>.md`
-- 切换工作流：更新 `.workflows/ACTIVE_WORKFLOW.txt`
+- `.workflow/workflows/<workflow_slug>/BASE.md`
+- `.workflow/workflows/<workflow_slug>/.commands/`（可空，但建议存在）
+- （如用 Promptbook）`.workflow/workflows/<workflow_slug>/promptbook/P-0001.md`
+- （如需新角色）`.workflow/roles/<Role>.md`
+- 切换工作流：更新 `.workflow/workflows/ACTIVE_WORKFLOW.txt`
 
 ---
 
@@ -38,7 +39,7 @@ BASE 至少包含：
 
 ---
 
-## D. 角色手册（.roles/<Role>.md）必写清单
+## D. 角色手册（.workflow/roles/<Role>.md）必写清单
 - Role Purpose
 - Responsibilities
 - Non-Responsibilities
@@ -83,4 +84,4 @@ You MUST read and follow ./AI_LOADER.md before doing any work.
 - Claude Code：`.claude/CLAUDE.md`
 - Antigravity：`.agent/rules/GEMINI.md`
 
-当 `.workflows/` 与 `.roles/` 缺失时，由 `AI_LOADER.md` 执行自举安装。
+当 `.workflow/workflows/` 与 `.workflow/roles/` 缺失时，由 `AI_LOADER.md` 执行自举安装。

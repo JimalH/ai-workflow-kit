@@ -33,7 +33,7 @@
   - Files:
   - Commands:
   - Skills (if any):
-    - <skill_id> from <repo>@<commit/tag> (cache: .workflows/_skills_cache/... ; installed to: ...)
+    - <skill_id> from <repo>@<commit/tag> (cache: .workflow/workflows/_skills_cache/... ; installed to: ...)
 
 ## 8. Validation Report / 验收总结 (append-only; Validator)
 ### Validation Run 1

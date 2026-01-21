@@ -49,7 +49,7 @@
 - 拷贝完成后，确保存在 `.workflow/workflows/_skills_cache/`（无则创建）。
 
 ### 3.3 选择 workflow（必须问用户）
-安装后，扫描 `.workflow/workflows/` 下所有含 `BASE.md` 的目录（排除 `docs/`、`_skills_cache/`），列出可用 `workflow_slug` 并问用户：
+?????? `.workflow/workflows/` ???? `BASE.md` ?????? `docs/`?`_skills_cache/`?????? `workflow_slug`???? `none`??? minimal safety only??????
 - “你要启用哪个 workflow_slug？”
 
 将选择结果写入：
@@ -79,19 +79,20 @@ You MUST read and follow ./.workflow/AI_LOADER.md before doing any work.
 
 ---
 
-## 4) 进入工作流执行（安装完成或已安装）
-按顺序执行：
-1) 读并遵循 `.workflow/AI_WORKFLOW_BASE.md`
-2) 按 `.workflow/AI_WORKFLOW_BASE.md` 的 Bootstrap Sequence 读取：
+## 4) ?????????????????
+??????
+1) ???? `.workflow/AI_WORKFLOW_BASE.md`
+2) ? `<workflow_slug> == none`?
+   - ?? `.workflow/workflows/none/BASE.md`
+   - ?? promptbook/SSOT/append-only ???none ??? SSOT?
+   - ???????????????? `.workflow/roles/<ROLE>.md`?
+   ???? `.workflow/AI_WORKFLOW_BASE.md` ? Bootstrap Sequence ???
    - `.workflow/workflows/ACTIVE_WORKFLOW.txt`
    - `.workflow/workflows/CHAT_PROTOCOL.md`
    - `.workflow/workflows/<workflow_slug>/BASE.md`
-   - `.workflow/roles/<ROLE>.md`（组合角色则读多个）
-3) 处理 `.workflow/workflows/<workflow_slug>/temp_chat_*.txt`（若存在）
-4) 再进行实现/验收/写 SSOT
-
----
-
+   - `.workflow/roles/<ROLE>.md`??????????
+3) ?? `.workflow/workflows/<workflow_slug>/temp_chat_*.txt`?????none ??????
+4) ?????/??/? SSOT?none ????? SSOT?
 ## 5) 最后输出（强制）
 若执行过第 3 节安装/修复，你必须在对话里输出：
 - 已写入/更新的文件列表（含路径）

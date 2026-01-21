@@ -114,7 +114,7 @@
   - https://github.com/anthropics/skills
   - https://github.com/rominirani/antigravity-skills
   - https://github.com/sickn33/antigravity-awesome-skills
-- **Cache (repo)**: `.workflows/_skills_cache/`
+- **Cache (repo)**: `.workflow/workflows/_skills_cache/`
 - **Install policy**:
   1) 若平台已安装：直接使用
   2) 若未安装且 Required ≠ NONE：从 allowlist 拉取到 `_skills_cache/` 并固定到 commit/tag，再安装/复制到平台技能目录

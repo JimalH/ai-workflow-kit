@@ -33,6 +33,7 @@
 - `.workflow/roles/<Role>.md`
 - `.workflow/workflows/<workflow_slug>/promptbook/`（若该 workflow 使用 promptbook 作为 SSOT）
 - `.workflow/workflows/_skills_cache/`（统一 skills 缓存目录）
+- none ???`.workflow/workflows/none/BASE.md`?minimal safety only??? SSOT/promptbook?
 
 ---
 
@@ -51,12 +52,18 @@
 ## 3) 每轮必做：Bootstrap Sequence（强制顺序）
 > 任何输出（实现/验收/写 SSOT/发 chat）之前，必须按顺序执行。
 
-### Step 1 — 读取工作流配置
-1) 读 `.workflow/workflows/ACTIVE_WORKFLOW.txt` 得到 `<workflow_slug>`
-2) 读 `.workflow/workflows/CHAT_PROTOCOL.md`
-3) 读 `.workflow/workflows/<workflow_slug>/BASE.md`（提取 Roles Registry / SSOT 定义 / Skills Policy / **Permissions Policy**）
-4) 读 `.workflow/roles/<ROLE>.md`（若组合角色则读多个）
-
+### Step 1 ? ???????
+1) ? `.workflow/workflows/ACTIVE_WORKFLOW.txt` ?? `<workflow_slug>`
+2) ? `<workflow_slug> == none`?
+   - ?? `.workflow/workflows/none/BASE.md`
+   - ?? promptbook/SSOT/append-only ???none ??? SSOT?
+   - ???????????????? `.workflow/roles/<ROLE>.md`?
+   - ??? `.workflow/workflows/CHAT_PROTOCOL.md`?none ?????? AI ???
+   ?? Step 1
+   ???
+   - ? `.workflow/workflows/CHAT_PROTOCOL.md`
+   - ? `.workflow/workflows/<workflow_slug>/BASE.md`??? Roles Registry / SSOT ?? / Skills Policy / **Permissions Policy**?
+   - ? `.workflow/roles/<ROLE>.md`???????????
 ### Step 2 — Permissions Bootstrap（强制）
 - 你可以在平台侧被授予“无需询问即可编辑/运行命令”等能力，但**必须**遵守当前 BASE 的：
   - `Autonomy & Permissions Policy`
