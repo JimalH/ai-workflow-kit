@@ -1,111 +1,95 @@
-# AI_WORKFLOW_BASE.md — 工作流基础规则（长期版）
+# AI_WORKFLOW_BASE.md ? Workflow base rules
 
-> 本文件是“长期版规则/规范”（较长）。  
-> 各平台入口文件只需要一个很短的 stub，指向 `.workflow/AI_LOADER.md`（短版自举入口）。  
-> 执行顺序：先读 `.workflow/AI_LOADER.md` → 再读本文件 `.workflow/AI_WORKFLOW_BASE.md` → 再读当前 workflow 的 `BASE.md` 与角色手册。
+> Read order: `.workflow/AI_LOADER.md` ? this file ? active workflow `BASE.md` ? role files.
 
 ---
 
 ## Kit Source (self-bootstrap)
 - WORKFLOW_KIT_REPO = https://github.com/JimalH/ai-workflow-kit.git
-- WORKFLOW_KIT_REF = main (pin to a tag like v0.1.0 when available)
+- WORKFLOW_KIT_REF  = main (pin to a tag, e.g., v0.2.0)
 - WORKFLOW_KIT_SUBDIR = .
 
-## 0) 核心术语
-- **Workflow**：一套协作流程（例如 RAC）。
-- **SSOT**：单一事实来源（需求/任务/验收/变更必须写回）。
-- **BASE**：某个 workflow 的业务规则与文档规范（流程、验收、记录、Skills Policy、Permissions Policy…）。
-- **Roles**：通用角色手册（职责边界），可跨 workflow 复用。
-- **Chat Protocol**：跨 AI 文件聊天传输层（锁、已读指针、消息格式…）。
-- **Skills**：可选能力扩展（角色可声明 Required/Recommended；缺失时按 allowlist 获取与缓存/安装）。
+## 0) Core terms
+- Workflow: a collaboration flow (e.g., relay_accept_change).
+- SSOT: single source of truth.
+- BASE: per-workflow rules/specs (process, acceptance, records, skills, permissions).
+- Roles: reusable role guides.
+- Chat Protocol: cross-AI chat transport rules.
+- Skills: optional capabilities (allowlisted, cached).
 
----
-
-## 1) 固定仓库结构（写死）
-仓库根目录必须存在：
+## 1) Fixed structure (must exist)
 - `.workflow/workflows/`
 - `.workflow/roles/`
 
-关键文件：
-- `.workflow/workflows/ACTIVE_WORKFLOW.txt`  → 当前启用的 workflow_slug
-- `.workflow/workflows/CHAT_PROTOCOL.md`     → 通用传输层协议
+Key files:
+- `.workflow/workflows/ACTIVE_WORKFLOW.txt`  ? current `workflow_slug`
+- `.workflow/workflows/CHAT_PROTOCOL.md`     ? transport protocol
 - `.workflow/workflows/<workflow_slug>/BASE.md`
 - `.workflow/roles/<Role>.md`
-- `.workflow/workflows/<workflow_slug>/promptbook/`（若该 workflow 使用 promptbook 作为 SSOT）
-- `.workflow/workflows/_skills_cache/`（统一 skills 缓存目录）
-- none ???`.workflow/workflows/none/BASE.md`?minimal safety only??? SSOT/promptbook?
+- `.workflow/workflows/<workflow_slug>/promptbook/` (if that workflow uses promptbook as SSOT)
+- `.workflow/workflows/_skills_cache/` (skills cache)
+- None mode: `.workflow/workflows/none/BASE.md` (minimal safety only; no SSOT/promptbook)
+
+## 2) Your identity (Role / Identity) ? driven by workflow BASE
+- **ROLE**: must be in current workflow `BASE.md` Roles Registry (combine only if allowed).
+- **IDENTITY**: short label (AI instance/platform), e.g., `AI1/AI2/Claude/Codex/AG`.
+
+### 2.1 Role confirmation rules (mandatory)
+- If user assigned a role: use it, but verify it is Allowed and combo is permitted.
+- If not assigned/unsure: ask once: ?Please pick a ROLE from Allowed Roles (combos must match Allowed Combos); what Identity tag should I use??
+
+## 3) Every turn: Bootstrap Sequence (strict order)
+> Do this before any implementation/validation/SSOT/chat output.
+
+### Step 1 ? Read workflow config
+1) Read `.workflow/workflows/ACTIVE_WORKFLOW.txt` to get `<workflow_slug>`
+2) If `<workflow_slug> == none`:
+   - Read `.workflow/workflows/none/BASE.md`
+   - Skip promptbook/SSOT/append-only rules (none has no SSOT)
+   - Roles are optional; load `.workflow/roles/<ROLE>.md` only if user assigns
+   - You may skip `.workflow/workflows/CHAT_PROTOCOL.md` (none usually has no cross-AI chat)
+   End Step 1.
+   Else:
+   - Read `.workflow/workflows/CHAT_PROTOCOL.md`
+   - Read `.workflow/workflows/<workflow_slug>/BASE.md` (Roles Registry / SSOT / Skills / **Permissions Policy**)
+   - Read `.workflow/roles/<ROLE>.md` (multiple if combined)
+
+### Step 2 ? Permissions Bootstrap (mandatory)
+- Even if the platform grants full rights, you **must** follow the current workflow?s `Autonomy & Permissions Policy`.
+- If unsure whether an action is allowed: **ask the user** (BASE rules first).
+
+### Step 3 ? Skills Bootstrap (if roles require)
+- Read `Required Skills` in `.workflow/roles/<ROLE>.md`.
+- Obey workflow Skills Policy:
+  - Allowlist only
+  - Cache to `.workflow/workflows/_skills_cache/` and pin to commit/tag
+  - Default: load instructions only; no auto execution of scripts/binaries unless BASE/user allows
+  - Record installs/usage in SSOT Change Log if BASE requires
+
+### Step 4 ? Handle cross-AI chat (highest priority each turn)
+In `.workflow/workflows/<workflow_slug>/` find `temp_chat_*.txt`:
+- If multiple OPEN: pick newest mtime
+- Lock via `_editing` per CHAT_PROTOCOL
+- Update `Last read`
+- Mark needed messages `FLAG:UNREAD ? READ`
+- Reply if needed (TYPE per BASE; tags recommended)
 
 ---
 
-## 2) 你的身份（Role / Identity）——从 BASE 动态读取
-你必须拥有两项身份信息：
-- **ROLE**：必须从当前 workflow 的 `BASE.md` 中的 `Roles Registry (machine-readable)` 里选择（允许组合时才可 `RoleA+RoleB`）。
-- **IDENTITY**：一个短标签（AI 平台/实例名），例如 `AI1/AI2/Claude/Codex/AG` 等。
+## 4) SSOT write discipline (mandatory unless none mode)
+- SSOT as defined by BASE (often promptbook)
+- Canonical: first occurrence of a heading wins; no duplicate full templates
+- Append-only: only sections BASE allows (often Change Log, Validation Report)
+- Evidence required for PASS (per BASE)
 
-### 2.1 角色确认规则（强制）
-- 若用户已指派 ROLE：使用之，但必须校验该 ROLE 在 `Allowed Roles` 内，组合在 `Allowed Combos` 内且不在 `Disallowed Combos`。
-- 若未指派或不确定：**只问一次**：
-  - “请从 BASE 的 `Allowed Roles` 中指派我一个 ROLE（可组合需符合 Allowed Combos）；Identity 用什么标签？”
+## 5) Blocking
+If blocked (missing files/perm/env/data):
+- Record BLOCKED (SSOT or validation report)
+- Provide unblocking steps
+- Do not fabricate paths/versions/outputs
 
----
-
-## 3) 每轮必做：Bootstrap Sequence（强制顺序）
-> 任何输出（实现/验收/写 SSOT/发 chat）之前，必须按顺序执行。
-
-### Step 1 ? ???????
-1) ? `.workflow/workflows/ACTIVE_WORKFLOW.txt` ?? `<workflow_slug>`
-2) ? `<workflow_slug> == none`?
-   - ?? `.workflow/workflows/none/BASE.md`
-   - ?? promptbook/SSOT/append-only ???none ??? SSOT?
-   - ???????????????? `.workflow/roles/<ROLE>.md`?
-   - ??? `.workflow/workflows/CHAT_PROTOCOL.md`?none ?????? AI ???
-   ?? Step 1
-   ???
-   - ? `.workflow/workflows/CHAT_PROTOCOL.md`
-   - ? `.workflow/workflows/<workflow_slug>/BASE.md`??? Roles Registry / SSOT ?? / Skills Policy / **Permissions Policy**?
-   - ? `.workflow/roles/<ROLE>.md`???????????
-### Step 2 — Permissions Bootstrap（强制）
-- 你可以在平台侧被授予“无需询问即可编辑/运行命令”等能力，但**必须**遵守当前 BASE 的：
-  - `Autonomy & Permissions Policy`
-- 若不确定某动作是否允许：**必须询问用户**（BASE 规则优先）。
-
-### Step 3 — Skills Bootstrap（若角色要求）
-- 读取 `.workflow/roles/<ROLE>.md` 的 `Required Skills` 段
-- 遵守 `BASE.md` 的 Skills Policy：
-  - allowlist only
-  - 缓存到 `.workflow/workflows/_skills_cache/` 并固定 commit/tag
-  - 默认只加载指令文件；禁止自动执行脚本/二进制（除非 BASE/用户明确允许）
-  - 安装/使用必须写入 SSOT 的 Change Log（或 BASE 指定位置）
-
-### Step 4 — 处理跨 AI chat（每轮优先）
-在 `.workflow/workflows/<workflow_slug>/` 查找 `temp_chat_*.txt`：
-- 若多个 OPEN：选择最近修改时间最新的
-- 按 CHAT_PROTOCOL 使用 `_editing` 重命名锁
-- 更新自己的 `Last read`
-- 将需要你处理的消息 `FLAG:UNREAD → READ`
-- 必要时回复（TYPE 语义由 BASE 定义；建议使用 TAG）
-
----
-
-## 4) SSOT 写入纪律（强制）
-- 由 BASE 指定 SSOT（常见为 promptbook）
-- **canonical**：同名标题以首次出现为准；不得在文末复制整套模板再写一遍
-- **append-only**：仅 BASE 指定章节允许追加（常见：Change Log、Validation Report）
-- 禁止预写空结构/占位符
-- PASS 必须证据（由 BASE 规定）
-
----
-
-## 5) 阻塞处理（强制）
-发现阻塞（缺文件/缺权限/缺环境/缺数据）：
-- 记录 BLOCKED（在 SSOT 或验收报告）
-- 给出可执行的解阻步骤
-- 不得编造路径/版本/输出
-
----
-
-## 6) 最小安全原则（强制）
-- 不删除用户数据/历史记录
-- 不覆盖 append-only 记录（只能追加）
-- 不改旧 chat 正文（只允许改 header 与 FLAG）
-- 不引入超出 BASE 的流程变体
+## 6) Minimum safety
+- Do not delete user data/history
+- Do not overwrite append-only records (append only)
+- Do not edit prior chat bodies (only headers/flags)
+- Stay within BASE-defined process; ask if unsure
