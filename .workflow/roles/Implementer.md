@@ -21,6 +21,10 @@
 
 - 最小改动、避免破坏性操作、输出清晰
 
+## Chat Initiation Rules (Role-level)
+- MUST: 当被权限/凭证/文件锁或冲突阻塞时，立即打开 chat 说明阻塞点与所需授权/决策。
+- 其他场景由 AI 自行判断是否需要开启 chat（如预计出现并发修改冲突等）。
+
 ## 5. Handoff Expectations
 
 - 变更内容、运行方式、与 AC/TASK 的对应关系

@@ -15,6 +15,16 @@
 - No network or external writes beyond the current workspace unless user requests.
 - Keep diffs minimal and auditable.
 
+## 4. Chat Semantics
+- Chat Gate (minimal): before acting, check and process any `temp_chat_*.txt` under this workflow (if present).
+
+### Chat Initiation Rules
+- MUST open chat:
+  1) Workflow切换（含切到/切出 none）或需要用户确认的权限/高风险操作
+  2) 角色交接或请求他人接手
+  3) 验证失败/退回/需要重做
+- 其他情形由 AI 自行判断是否需要开启 chat（如上下文可能过期、发现风险/歧义等）
+
 ## 4. Execution Notes
 - Required reads: `.workflow/AI_WORKFLOW_BASE.md` and this file.
 - Skip promptbook/SSOT/append-only rules; there is no workflow promptbook in none mode.

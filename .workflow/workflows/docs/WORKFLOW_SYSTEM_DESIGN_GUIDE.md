@@ -17,7 +17,7 @@ none ???workflow_slug=none???? minimal safety?? promptbook/SSOT????????????
 
 ## B. 新建工作流（workflow_slug）时必须创建
 - `.workflow/workflows/<workflow_slug>/BASE.md`
-- `.workflow/workflows/<workflow_slug>/.commands/`（可空，但建议存在）
+- `.workflow/workflows/<workflow_slug>/.commands/`（建议包含 `session_watch.md` 与 `session_watchlist.txt`）
 - （如用 Promptbook）`.workflow/workflows/<workflow_slug>/promptbook/P-0001.md`
 - （如需新角色）`.workflow/roles/<Role>.md`
 - 切换工作流：更新 `.workflow/workflows/ACTIVE_WORKFLOW.txt`
@@ -31,6 +31,7 @@ BASE 至少包含：
 - Document Formats（结构、编号、canonical、append-only、防呆）
 - Process / Lifecycle（循环、失败策略、先全验收后判定）
 - Chat Semantics（TYPE 语义、handoff、close/digest）
+- Chat Initiation Rules（写明 MUST 触发：角色交接、验证 FAIL、工作流切换、高风险动作、安装/修复冲突等；其他场景可留给 AI 自行判断）
 - Validation & Evidence Rules（PASS 证据门槛）
 - Skills Policy（allowlist、cache、pin、是否允许执行脚本）
 - **Autonomy & Permissions Policy（必须）**
@@ -44,6 +45,7 @@ BASE 至少包含：
 - Responsibilities
 - Non-Responsibilities
 - Operating Rules
+- Chat Initiation Rules（角色层 MUST 触发写清；非强制场景由 AI 自行决定是否开启 chat）
 - Handoff Expectations
 - Required Skills（固定段落：Required/Recommended/Sources/Cache/Install policy/记录要求）
 
@@ -85,3 +87,9 @@ You MUST read and follow ./AI_LOADER.md before doing any work.
 - Antigravity：`.agent/rules/GEMINI.md`
 
 当 `.workflow/workflows/` 与 `.workflow/roles/` 缺失时，由 `AI_LOADER.md` 执行自举安装。
+
+## 附：Session Watcher（替代 session mode）
+- 工具：`.workflow/tools/session_watcher.py`（仅 mtime，可能误报；默认 1h 可用 `--forever`）
+- 每个 workflow 写死监控范围：在 `.commands/session_watchlist.txt` 列出相对路径/glob（含 chat 临时文件、BASE、promptbook、报告等）
+- 文档：`.commands/session_watch.md` 记录用法、自然语言映射、JSON 架构、退出码
+- 自然语言示例：`session watch 30min` → `--duration 1800`; `session mode 1h` → `--duration 3600`; `session watch forever` → `--forever`

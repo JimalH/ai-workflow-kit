@@ -21,6 +21,11 @@ You MUST read and follow ./.workflow/AI_LOADER.md before doing any work.
 ### Pinning
 Prefer pinning bootstrap to a tag (e.g., `v0.1.0`) instead of `main` for stability.
 
+### Session Watcher
+- Tool: `.workflow/tools/session_watcher.py` (mtime-only; may emit false positives).
+- Workflows should ship `.commands/session_watch.md` and `.commands/session_watchlist.txt` to define what paths are polled.
+- Natural language: “session watch 30min” → `--duration 1800`; “session mode 1h” → `--duration 3600`; “session watch forever” → `--forever`.
+
 ### None mode
 - Set `ACTIVE_WORKFLOW.txt` to `none` to disable workflow SSOT/promptbook rules and keep only minimal safety. Roles are optional unless explicitly assigned. The minimal policy lives at `.workflow/workflows/none/BASE.md`.
 
@@ -33,6 +38,8 @@ Prefer pinning bootstrap to a tag (e.g., `v0.1.0`) instead of `main` for stabili
    - `.agent/rules/GEMINI.md`
 3) Pick a workflow slug from `.workflow/workflows/` and write it to `.workflow/workflows/ACTIVE_WORKFLOW.txt`.
 4) Follow `.workflow/workflows/CHAT_PROTOCOL.md` and the chosen workflow’s `BASE.md` for roles, SSOT, skills policy, and permissions policy.
+5) Add chat initiation rules to both the workflow `BASE.md` (workflow-level MUST triggers; non-mandatory cases may be left to AI judgment) and each role manual (role-level MUST triggers).
+6) Provide session watcher docs & watchlist for the workflow under `.commands/`.
 
 ## Workflows Location
 - Workflows live under `.workflow/workflows/<slug>/` (with `BASE.md` and promptbook assets).

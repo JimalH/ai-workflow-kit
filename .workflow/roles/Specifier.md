@@ -93,6 +93,12 @@
 - 禁止预写空结构/占位符（例如“这里由 XXX 完成”）
 - 不得在文末复制整套 Promptbook/模板结构
 
+## Chat Initiation Rules (Role-level)
+- MUST: 出现需求分叉/选项需要决策时，开启 chat 给出 A/B 方案与默认值。
+- MUST: 缺失信息导致无法编写 AC/TASK 时，按单问节奏 (i/n) 提 1 问；得到回答后继续下一个。
+- MUST: 角色切换或请求其他 agent 接手规格/决策时。
+- 其他场景由 AI 自行判断是否需要开启 chat（如发现风险或假设影响已写 AC/TASK 等）。
+
 ---
 
 ## 5. Handoff Expectations

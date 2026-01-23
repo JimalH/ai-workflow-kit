@@ -22,6 +22,8 @@
 /.workflow/
   AI_LOADER.md
   AI_WORKFLOW_BASE.md
+  tools/
+    session_watcher.py
   workflows/
     CHAT_PROTOCOL.md
     ACTIVE_WORKFLOW.txt
@@ -31,10 +33,15 @@
       WORKFLOW_SYSTEM_DESIGN_GUIDE.md
     none/
       BASE.md
+      .commands/
+        session_watch.md
+        session_watchlist.txt
     <workflow_slug>/
       BASE.md
       .commands/
         <command>.md
+        session_watch.md
+        session_watchlist.txt
       promptbook/
         P-0001.md
         ...
@@ -88,6 +95,11 @@ none workflow_slug: `.workflow/workflows/none/BASE.md` — minimal safety only (
 - `.workflow/workflows/CHAT_PROTOCOL.md` 只定义传输机制，不定义业务语义
 - TYPE 语义、归档策略等放在 workflow 的 `BASE.md`
 
+## 6.1 Chat Initiation Rules（分层）
+- workflow 层：在各 `BASE.md` 定义 MUST 触发条件（如角色交接、验证 FAIL、工作流切换、权限高风险操作、安装/修复冲突等），描述保持厂商无关；可留给 AI 自行判断的场景不作强制。
+- role 层：在 `.workflow/roles/<Role>.md` 定义角色特有的 MUST 触发（例如 Validator 在 FAIL 时必须开启 chat；Specifier 在需求分叉或缺失信息阻塞时必须提问）。非强制场景由 AI 自行决定。
+- Chat Gate 仍然适用：行动前先读 chat；新增规则规定“哪些情况必须主动开启对话”，其余由 AI 斟酌。
+
 ---
 
 ## 7. Skills（allowlist + cache + pin）
@@ -110,6 +122,12 @@ allowlist only：
 - append-only：仅 BASE 指定章节允许追加（常见：Change Log、Validation Report）
 - 禁止预写空结构/占位符
 - PASS 必须证据（由 BASE 定义）
+
+## 9. Session Watcher（替代 session mode）
+- 工具：`.workflow/tools/session_watcher.py`（仅比对 mtime，可能有误报）
+- 每个 workflow 在 `.commands/` 下提供 `session_watch.md` + `session_watchlist.txt`，写死监控范围（应包含 chat 临时文件、BASE、promptbook/AC/报告等关键文件）
+- 输出：1 行人类摘要 + 1 行单行 JSON，事件 `changed|timeout|config_error`；超时退出码 2，配置缺失 3
+- 自然语言映射：`session watch 30min` → `--duration 1800`; `session mode 1h` → `--duration 3600`; `session watch forever` → `--forever`
 
 
 ---

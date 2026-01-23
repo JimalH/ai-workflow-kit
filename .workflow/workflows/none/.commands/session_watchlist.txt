@@ -1,0 +1,5 @@
+# Session watcher scope for none workflow (minimal safety)
+.workflow/workflows/none/BASE.md
+.workflow/workflows/none/.commands/session_watch.md
+.workflow/workflows/none/.commands/session_watchlist.txt
+.workflow/workflows/CHAT_PROTOCOL.md

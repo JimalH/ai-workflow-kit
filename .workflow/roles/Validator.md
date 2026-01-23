@@ -20,6 +20,10 @@
 
 - 可复现、最小侵入、清晰建议
 
+## Chat Initiation Rules (Role-level)
+- MUST: 任一验收项 FAIL 时，打开 chat，总结复现步骤、证据、优先修复建议与复验命令。
+- SHOULD: 当验收被环境/权限/数据缺失阻塞时，说明缺口并请求所需输入。
+
 ## 5. Handoff Expectations
 
 - 失败项 ID、证据、修复建议、复验命令
