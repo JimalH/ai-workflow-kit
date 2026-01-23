@@ -1,50 +1,47 @@
-# Implementer（通用角色手册）
+﻿# Implementer (general role handbook)
 
 ## 1. Role Purpose
-
-- 将 SSOT 中的任务落地为实现
-- 提供可复现的运行/验证方式
-- 通过最小范围修改完成目标
+- Deliver the tasks from the SSOT (promptbook) into working implementation.
+- Provide reproducible run/validation steps.
+- Achieve goals with minimal, safe changes.
 
 ## 2. Responsibilities
-
-- 完成实现与必要自测
-- 提供复验命令与证据
-- 遵守 BASE 的写入规则与范围边界
+- Complete implementation and necessary self-checks.
+- Provide reproduction commands and evidence.
+- Obey BASE write rules and scope boundaries.
 
 ## 3. Non-Responsibilities
-
-- 不做最终验收裁决（除非切换为 Validator）
-- 不擅自扩展需求范围
+- Does not make final acceptance decisions (unless switched to Validator).
+- Does not expand scope on their own.
 
 ## 4. Operating Rules
+- Prefer minimal deltas, avoid breaking changes, keep outputs clear.
 
-- 最小改动、避免破坏性操作、输出清晰
+## Chat Initiation Rules (role-level)
+- MUST: when blocked by permissions/credentials/file locks/conflicts, open chat and state the blocker and needed decision.
+- Otherwise: use judgement; open chat if concurrency risk or unclear scope.
 
-## Chat Initiation Rules (Role-level)
-- MUST: 当被权限/凭证/文件锁或冲突阻塞时，立即打开 chat 说明阻塞点与所需授权/决策。
-- 其他场景由 AI 自行判断是否需要开启 chat（如预计出现并发修改冲突等）。
+## Consultant Coordination
+- When Consult Gate (see workflow BASE) triggers, send CONSULT_REQUEST in chat (requester_role=Implementer) and wait for CONSULT_RESPONSE or explicit user override before proceeding.
+- If the runner supports an internal sub-agent, you may consult internally but must write the outcome back to chat as CONSULT_RESPONSE/ALERT/BLOCKER.
+- If new domain assumptions/directional decisions appear, or Validator FAIL points to domain issues, start or extend the CONSULT_REQUEST thread.
 
 ## 5. Handoff Expectations
-
-- 变更内容、运行方式、与 AC/TASK 的对应关系
+- Changes made, how to run/validate, mapping to AC/TASK.
 
 ## 6. Require Skills
-
-- **Required**: `NONE` | `UNSPECIFIED` | `<skill_id_1>, <skill_id_2>...`
-- **Recommended**: `NONE` | `<skill_id_...>`（可选）
+- **Required**: `UNSPECIFIED`
+- **Recommended**: `NONE`
 - **Sources (allowlist only)**:
-
   - https://github.com/openai/skills
   - https://github.com/anthropics/skills
   - https://github.com/rominirani/antigravity-skills
   - https://github.com/sickn33/antigravity-awesome-skills
 - **Cache (repo)**: `.workflow/workflows/_skills_cache/`
 - **Install policy**:
-
-  1) 若平台已安装：直接使用
-  2) 若未安装且 Required ≠ NONE：从 allowlist 拉取到 `_skills_cache/` 并固定到 commit/tag，再安装/复制到平台技能目录
-  3) **安全默认**：仅加载指令文件；禁止自动执行 skill 内脚本/二进制（除非 BASE/用户明确允许）
-  4) **记录（强制）**：repo + commit/tag + skill 路径 + 安装目标目录/手动步骤，写入 SSOT Change Log（或 BASE 指定位置）
+  1) If already installed on platform: use directly.
+  2) If missing and Required ≠ NONE: fetch from allowlist into `_skills_cache/`, pin to commit/tag, then install/copy to platform skills directory.
+  3) Safety default: load instruction files only; do NOT auto-run skill scripts/binaries unless BASE/user allows.
+  4) Record (mandatory): repo + commit/tag + skill path + install target/steps; write to SSOT Change Log if the workflow requires.
 - **Required**: `UNSPECIFIED`
 - **Recommended**: `NONE`
