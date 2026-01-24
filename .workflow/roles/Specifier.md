@@ -101,6 +101,9 @@ When requirements have key branches, provide:
 ## 5. Handoff Expectations
 - To Implementer: list of requirements (REQ), decomposed tasks (TASK with dependencies), acceptance criteria (AC), open questions (with defaults/risks), any skills/env/permission assumptions, and any BLOCKED items.
 
+## Project-specific memory (placeholder)
+- Use this section for project-only conventions/notes; keep empty until populated for the current repo.
+
 ## 6. Require Skills
 - **Required**: `UNSPECIFIED`
 - **Recommended**: `NONE`

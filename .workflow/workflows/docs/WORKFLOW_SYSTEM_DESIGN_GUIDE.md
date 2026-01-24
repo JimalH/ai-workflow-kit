@@ -5,6 +5,7 @@ Runbook for any AI to set up or extend a workflow using the kit. Keep structure 
 ---
 
 ## A. Startup steps (every session)
+
 1) Read `.workflow/workflows/ACTIVE_WORKFLOW.txt` to get `<workflow_slug>`.
 2) Read `.workflow/workflows/CHAT_PROTOCOL.md`.
 3) Read `.workflow/workflows/<workflow_slug>/BASE.md` (must include Roles Registry and Permissions Policy).
@@ -15,6 +16,7 @@ Runbook for any AI to set up or extend a workflow using the kit. Keep structure 
 ---
 
 ## B. Creating a new workflow (`workflow_slug`)
+
 - Create `.workflow/workflows/<workflow_slug>/BASE.md` (include Roles Registry, Permissions Policy, chat semantics, consult gate, evidence rules, etc.).
 - Create `.workflow/workflows/<workflow_slug>/.commands/` (include `session_watch.md`, `session_watchlist.txt`, and `consult.md`).
 - If using promptbook SSOT, add `.workflow/workflows/<workflow_slug>/promptbook/P-0001.md`.
@@ -24,6 +26,7 @@ Runbook for any AI to set up or extend a workflow using the kit. Keep structure 
 ---
 
 ## C. BASE.md required checklist (mandatory)
+
 - Workflow Overview (goals/non-goals).
 - Artifacts & SSOT (definition and paths).
 - Document formats (structure, numbering, canonical, append-only, anti-drift).
@@ -40,6 +43,7 @@ Runbook for any AI to set up or extend a workflow using the kit. Keep structure 
 ---
 
 ## D. Role handbooks (`.workflow/roles/<Role>.md`) required sections
+
 - Role Purpose
 - Responsibilities
 - Non-Responsibilities
@@ -52,6 +56,7 @@ Runbook for any AI to set up or extend a workflow using the kit. Keep structure 
 ---
 
 ## E. Permissions Policy (recommended default L1)
+
 - Allow agents to edit within scope whitelist without asking.
 - Require user confirmation for high-risk actions (delete/rename/install/execute scripts/change security/network outside allowlist/secrets).
 - When acting without asking, output change plan + diff summary and update SSOT logs if required.
@@ -59,6 +64,7 @@ Runbook for any AI to set up or extend a workflow using the kit. Keep structure 
 ---
 
 ## F. Multi-AI write discipline (mandatory)
+
 - SSOT: edit in place except append-only sections allowed by BASE; never duplicate structure.
 - Chat: append-only bodies; only header Last read/Status and message FLAG may change.
 - Priority: keep SSOT consistency first; explain chat if conflicts happen.
@@ -66,6 +72,7 @@ Runbook for any AI to set up or extend a workflow using the kit. Keep structure 
 ---
 
 ## G. Consultant overlay (for new workflows)
+
 - Always include Consultant in Roles Registry if consult is desired; mark as chat-only.
 - Add Consult Gate section with MUST/SHOULD triggers and pass condition (OK_TO_PROCEED yes or explicit override in chat).
 - Ensure CHAT_PROTOCOL supports CONSULT_* types (already system-wide).
@@ -77,6 +84,7 @@ Runbook for any AI to set up or extend a workflow using the kit. Keep structure 
 ---
 
 ## H. Session Watcher
+
 - Ship `.commands/session_watch.md` + `session_watchlist.txt` per workflow.
 - Include chat files, BASE, promptbook, reports, and other critical paths in watchlist.
 - Natural language to flags mapping: `session watch 30min` -> `--duration 1800`; `session mode 1h` -> `--duration 3600`; `session watch forever` -> `--forever`.
@@ -84,7 +92,9 @@ Runbook for any AI to set up or extend a workflow using the kit. Keep structure 
 ---
 
 ## Entry Stub pattern
+
 Keep platform entry stubs minimal; include marker block pointing to `AI_LOADER.md`.
+
 - Codex: `AGENTS.md`
 - Claude Code: `.claude/CLAUDE.md`
 - Antigravity/Gemini: `.agent/rules/GEMINI.md`
@@ -92,6 +102,11 @@ Keep platform entry stubs minimal; include marker block pointing to `AI_LOADER.m
 ---
 
 ## Consultant templates (for future workflows)
-- Use `roles/consultants/biologist.md` and `roles/consultants/trade_expert.md` as starting points for domain-specific checklists; extend per workflow as needed.
 
+- Use `roles/consultants/biologist.md` and `roles/consultants/trade_expert.md` as starting points for domain-specific checklists; Each domain-specific consultant canbe treated as an individual role; extend per workflow as needed.
 
+## Project-specific memory (scoped)
+
+- Each workflow/role may keep a small project-scoped memory segment for this repo only (naming conventions, temporary defaults, recent decisions).
+- Do not carry it across repositories or unrelated workflows; clear it when the project ends or workflow is switched.
+- Keep it concise and non-canonical; SSOT/promptbook remains the authoritative source.

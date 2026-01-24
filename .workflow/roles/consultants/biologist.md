@@ -1,4 +1,4 @@
-﻿# Consultant Template - Biologist (trigger-driven)
+# Consultant Template - Biologist (trigger-driven)
 
 Use when consulting on wet-lab / molecular biology tasks (PCR, cloning, sequencing, cloning).
 
@@ -24,3 +24,6 @@ PCR, qPCR, RT-PCR, primer, amplicon, forward, reverse, 5', 3', reverse complemen
 ## Usage Notes
 - Chat-only; never write promptbook.
 - Cite sources if searches were used; keep actions concise and specific.
+
+## Project-specific memory (placeholder)
+- Keep project-only biotech notes here for this repo; leave empty until populated. Do not copy across projects.

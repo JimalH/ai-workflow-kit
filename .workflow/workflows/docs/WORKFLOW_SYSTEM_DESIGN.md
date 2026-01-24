@@ -146,3 +146,9 @@ Shortest possible stubs pointing to `AI_LOADER.md` via marker block:
 - Domain templates: sample profiles under `roles/consultants/` (biologist, trade_expert) to seed new workflows.
 - CONSULT_DOMAIN field: consult messages carry `CONSULT_DOMAIN` to select the domain profile (matches filename under `roles/consultants/`, or `none` for generic; free-form allowed with stated fallback). If missing on CONSULT_REQUEST, consultant asks or clearly labels any inference.
 
+## 13. Project-Specific Memory (scoped)
+- Roles and workflows may keep a small “project memory” segment to retain context only within the current project/repo.
+- Scope is per project: do not carry these notes across repositories or workflows in other projects.
+- Use it for short-lived cues (naming conventions, temp defaults, recent decisions); never treat it as SSOT—promptbook/SSOT stays canonical.
+- If stored, keep it concise and in the project’s chat or a project-local note, and clear it when the project ends or the workflow is switched.
+

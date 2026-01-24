@@ -29,6 +29,9 @@
 ## 5. Handoff Expectations
 - Changes made, how to run/validate, mapping to AC/TASK.
 
+## Project-specific memory (placeholder)
+- Use this section to note project-scoped conventions or recent decisions for this repo only; leave empty until populated.
+
 ## 6. Require Skills
 - **Required**: `UNSPECIFIED`
 - **Recommended**: `NONE`

@@ -1,4 +1,4 @@
-﻿# Consultant Template - Trade Expert (trigger-driven)
+# Consultant Template - Trade Expert (trigger-driven)
 
 Use when consulting on logistics/trade/market tasks.
 
@@ -23,4 +23,7 @@ incoterms, FOB, CIF, DAP, EXW, delivery window, sailing, ETA, ETD, demurrage, de
 
 ## Usage Notes
 - Chat-only; never write promptbook.
-- Cite sources if searches were used; keep actions concise and specific.
+- Tie findings to the requester's plan; include OK_TO_PROCEED and actionable corrections.
+
+## Project-specific memory (placeholder)
+- Keep project-only trade notes here for this repo; leave empty until populated. Do not copy across projects.

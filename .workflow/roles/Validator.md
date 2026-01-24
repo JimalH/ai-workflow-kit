@@ -27,6 +27,9 @@
 ## 5. Handoff Expectations
 - Failing item IDs, evidence, repair suggestions, revalidation commands.
 
+## Project-specific memory (placeholder)
+- Use this section for repo-scoped validation conventions/notes; leave empty until populated for this project.
+
 ## 6. Require Skills
 - **Required**: `UNSPECIFIED`
 - **Recommended**: `NONE`
