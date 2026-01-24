@@ -38,7 +38,7 @@ Else run section 3 to install/repair.
 
 ---
 
-## 3) Install / Repair / Update
+## 3) Install / Repair
 
 ### 3.1 Fetch kit
 
@@ -77,6 +77,15 @@ Steps:
    You MUST read and follow ./.workflow/AI_LOADER.md before doing any work.
    <!-- END AI_WORKFLOW_LOADER_BLOCK -->
    ```
+
+### 3.5 Update (refresh kit content)
+
+- Fetch the kit to `<tmp_dir>` as in 3.1.
+- Update workflow-relevant files from the kit while **retaining project-specific info**:
+  - Safe to overwrite: `.workflow/workflows/CHAT_PROTOCOL.md`, `.workflow/workflows/docs/`, `.workflow/workflows/_skills_cache/` (structure), stubs in 3.4.
+  - Merge carefully: `.workflow/workflows/<workflow_slug>/BASE.md`, `.workflow/roles/<Role>.md`, and consultant profiles under `.workflow/roles/consultants/` (keep local project-specific sections such as project memory notes).
+  - Do not overwrite promptbook/SSOT content or project-specific additions; manual merge if diffs touch those sections.
+- After update, re-run 3.3 (workflow selection) only if the active workflow should change.
 
 ---
 
