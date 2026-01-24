@@ -34,3 +34,10 @@ Notes
 - Detection is mtime-only; editors that touch mtimes without content change may trigger false positives.
 - The watcher re-expands globs each poll, so new files that match the watchlist are captured.
 - Root defaults to repo top; override with `--root <path>` if running elsewhere.
+
+Responding to change notifications
+- When `[SESSION_WATCH] changed=...` appears, read the JSON line to get `changed` paths; open each modified file.
+- Identify your role from chat headers (`Participants:`) and check `temp_chat_*.txt` for `TAG:@<YourRole>` with `FLAG:UNREAD`.
+- Act on message TYPEs (e.g., HANDOFF, VALIDATION_FAIL, CLARIFICATION, BLOCKER), respond in chat with your role/identity, mark your message `FLAG:UNREAD`, and tag recipients.
+- If promptbook updates are required, append to Change Log per BASE rules.
+- Continue running watcher unless it exits (change found) or you stop it.

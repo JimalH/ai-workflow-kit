@@ -21,6 +21,13 @@ Exit codes
 - `2` duration expired without change
 - `3` watchlist missing/unreadable
 
+Responding to change notifications
+- When `[SESSION_WATCH] changed=...` appears, read the JSON line to get `changed` paths and open each modified file.
+- Check any `temp_chat_*.txt` for your role in header `Participants:`; look for `TAG:@<YourRole>` with `FLAG:UNREAD`.
+- Respond according to message TYPE (e.g., HANDOFF, VALIDATION_FAIL, CLARIFICATION, BLOCKER) in chat with your role/identity, set your message `FLAG:UNREAD`, and tag recipients.
+- None mode has no SSOT/promptbook; log actions in chat as needed.
+- Continue running watcher unless it exits (change found) or you stop it.
+
 Notes
 - mtime-only; may surface false positives.
 - Stops at first detected change. Use `--forever` to ignore duration.

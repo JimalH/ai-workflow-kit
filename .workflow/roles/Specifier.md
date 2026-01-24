@@ -85,6 +85,7 @@ When requirements have key branches, provide:
 - Follow BASE: canonical + append-only.
 - No prewritten empty structures or placeholders.
 - Never duplicate the promptbook structure at the end.
+- May modify/edit/create chat and promptbook files as required by the workflow (respect BASE rules), and may run workflow-related commands/scripts; do not block when such changes are needed for the spec.
 
 ## Chat Initiation Rules (role-level)
 - MUST: when requirement branches/option decisions need user choice, open chat with a single `(i/n)` question.
