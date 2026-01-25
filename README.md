@@ -29,6 +29,12 @@ Prefer pinning bootstrap to a tag (e.g., `v0.1.0`) instead of `main` for stabili
 ### None mode
 - Set `ACTIVE_WORKFLOW.txt` to `none` to disable workflow SSOT/promptbook rules and keep only minimal safety. Roles are optional unless explicitly assigned. The minimal policy lives at `.workflow/workflows/none/BASE.md`.
 
+### Simple workflow
+- Lightweight alternative: mutable `PROJECT.md` for current status plus `Change log/` with reviewer/verification fields.
+- Up to 3 ACTIVE change logs; when adding a 4th, move the least-recently-updated ACTIVE log to `Change log/Archived/` (immutable).
+- Append-only; one run may append to at most one active log. Entries record EDIT_BY, FILES, SUMMARY, optional REVIEWED_BY/VERIFIED_BY (PASS/FAIL), notes/evidence only when issues exist; user verification can be a single VERIFIED_BY line.
+- Default reading: `PROJECT.md` and relevant active logs (avoid Archived unless needed).
+
 ### Consultant overlay & Consult Gate
 - Consultant is a chat-only role (never writes promptbook) that provides domain sanity checks and can alert/block any role.
 - CHAT_PROTOCOL adds CONSULT_REQUEST / CONSULT_RESPONSE / CONSULT_ALERT / CONSULT_BLOCKER with required fields.

@@ -91,6 +91,16 @@ Runbook for any AI to set up or extend a workflow using the kit. Keep structure 
 
 ---
 
+## I. Simple workflow (lightweight option)
+
+- Use when minimal process is preferred: mutable `PROJECT.md` plus `Change log/` with reviewer/verification fields.
+- Keep at most 3 ACTIVE logs; when adding a 4th, move the least-recently-updated ACTIVE log to `Change log/Archived/` (immutable).
+- Append-only; corrections go in new entries (Errata). Each run may append to at most one active log.
+- Entry schema: EDIT_BY, FILES, SUMMARY, optional REVIEWED_BY/VERIFIED_BY (PASS/FAIL), notes/evidence only when issues exist; user verification can be a single VERIFIED_BY line.
+- Default reading: `PROJECT.md` + relevant active log(s); avoid Archived unless needed.
+
+---
+
 ## Entry Stub pattern
 
 Keep platform entry stubs minimal; include marker block pointing to `AI_LOADER.md`.

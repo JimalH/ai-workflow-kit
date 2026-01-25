@@ -152,3 +152,10 @@ Shortest possible stubs pointing to `AI_LOADER.md` via marker block:
 - Use it for short-lived cues (naming conventions, temp defaults, recent decisions); never treat it as SSOT—promptbook/SSOT stays canonical.
 - If stored, keep it concise and in the project’s chat or a project-local note, and clear it when the project ends or the workflow is switched.
 
+## 14. Simple workflow (lightweight option)
+- Purpose: minimal-safety alternative to RAC; centers on mutable `PROJECT.md` plus an append-only `Change log/` with reviewer/verification fields.
+- Artifacts: `PROJECT.md` (current state), `Change log/` (up to 3 ACTIVE logs) and `Change log/Archived/` (immutable).
+- Rules: only 3 ACTIVE logs; when creating a 4th, move the least-recently-updated ACTIVE log to Archived (then freeze). Append-only; one run may append to at most one active log. Archived logs are never edited.
+- Entries record EDIT_BY, FILES, SUMMARY, optional REVIEWED_BY/VERIFIED_BY (PASS/FAIL), and notes/evidence only when issues exist. User verification is a single VERIFIED_BY line.
+- Default reading: read `PROJECT.md` and relevant active log(s); avoid Archived unless needed.
+
