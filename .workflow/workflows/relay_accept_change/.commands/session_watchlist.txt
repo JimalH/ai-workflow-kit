@@ -1,7 +1,0 @@
-# Session watcher scope for relay_accept_change workflow
-.workflow/workflows/relay_accept_change/BASE.md
-.workflow/workflows/relay_accept_change/.commands/session_watch.md
-.workflow/workflows/relay_accept_change/.commands/session_watchlist.txt
-.workflow/workflows/relay_accept_change/promptbook/*.md
-.workflow/workflows/relay_accept_change/temp_chat_*.txt
-.workflow/workflows/CHAT_PROTOCOL.md
