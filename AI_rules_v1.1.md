@@ -130,3 +130,15 @@ Each Implementer (or Integrator) must provide:
 - `.changelog.md` updated per format; ROS Change Log updated if applicable
 - Tester = PASS (or explicitly “no tests needed” with rationale)
 - Otherwise: escalate to user for explicit confirmation.
+
+## 7) Rules Self-Update
+
+> Source of truth: `https://github.com/JimalH/ai-workflow-kit`
+
+When the user requests a rules update:
+
+1. **Fetch**: check the remote repo (`JimalH/ai-workflow-kit`) for any `AI_rules_v*.md` files with a version higher than the one currently in use.
+2. **Compare**: if a newer version exists, produce a concise summary of what changed (added / modified / removed rules, section-by-section).
+3. **Confirm**: present the diff summary to the user and ask for explicit approval before applying.
+4. **Apply**: only after user approval, download the new file and replace the local copy. Record the update in `.changelog.md`.
+5. **No silent upgrades**: never auto-replace or auto-merge rules without user confirmation.
