@@ -29,6 +29,7 @@
 ### `CHANGELOG.md` format
 
 - Stable short header. Entry boundary uses `---`.
+- Encoding: read/write in UTF-8 (UTF-8 without BOM preferred). Never use ANSI/system-default encoding.
 - Entry template:
 
 ---
@@ -73,6 +74,7 @@ Project Root is the directory that satisfies the first applicable rule:
 - Memory directory is **always**: `<PROJECT_ROOT>/.memory/`
 - Never create `.memory/` in subdirectories.
 - All tools/agents must read/write the same root `.memory/` only.
+- Encoding (Hard Rule): all reads/writes for `PROJECT_MEMORY.md` and `CHANGELOG.md` must use UTF-8 (UTF-8 without BOM preferred) to prevent non-ASCII text (e.g., Chinese) from becoming `?`.
 
 ### 5.3 Memory Files
 
