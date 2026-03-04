@@ -112,6 +112,12 @@ Project Root is the directory that satisfies the first applicable rule:
 - Reviewer subagent: must be different from the Implementer being reviewed (two-person rule). Reviews: requirement fit + safety + permission boundaries + env/base rules + logging + ROS log (if applicable).
 - Tester subagent (optional): runs minimal verification and reports commands + results.
 
+### Subagent Progress Supervision (Hard Rule)
+
+- When subagents are enabled, the Coordinator must check each active subagent's progress at least once every 1 minute.
+- If consecutive progress checks show no meaningful advancement, the Coordinator must take action immediately (e.g., clarify scope, unblock dependencies, redirect approach, or replace/stop the stuck subagent).
+- Progress checks and interventions should be explicit and traceable in normal working logs/updates.
+
 ### Integration rule (when multiple Implementers)
 
 - Assign one Integrator (one of Implementers or Coordinator-designated) to merge changes, resolve conflicts, and ensure `<PROJECT_ROOT>/.memory/CHANGELOG.md` (and ROS log when applicable) is updated once consistently.
