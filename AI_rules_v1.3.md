@@ -1,6 +1,6 @@
 # Project AI Rules (Tool-Agnostic)
 Version: v1.3
-Last Updated: 2026-03-08
+Last Updated: 2026-03-18
 
 
 ## 0) Default
@@ -104,9 +104,10 @@ Project Root is the directory that satisfies the first applicable rule:
 
 - Stable/reusable info → update `PROJECT_MEMORY.md` (rewrite allowed).
 - Process notes/todos/decisions/major edits → add one entry to `CHANGELOG.md`.
-- For every completed prompt, explicitly evaluate whether PROJECT_MEMORY.md needs updates and handle it in the same stage.
-- If no PROJECT_MEMORY.md change is needed, record 'reviewed-no-change' in the changelog Memory field.
-- Memory edits must be reflected in `CHANGELOG.md` with clear `Tags` for future retrieval.
+- After each prompt is completed and `CHANGELOG.md` is updated, review the current chat/request and the actual changes from this prompt to decide whether `PROJECT_MEMORY.md` should be added or edited.
+- If the answer is yes, edit `PROJECT_MEMORY.md` in the same close-out flow.
+- If the answer is no, record `reviewed-no-change` in the changelog `Memory` field.
+- Memory edits must also be reflected in `CHANGELOG.md` with clear `Tags` for future retrieval.
 
 ### 5.6 Never Store
 
