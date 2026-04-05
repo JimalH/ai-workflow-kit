@@ -1,6 +1,6 @@
 # Project AI Rules (Tool-Agnostic)
 Version: v1.3
-Last Updated: 2026-03-18
+Last Updated: 2026-04-05
 
 
 ## 0) Default
@@ -140,6 +140,20 @@ Each Implementer (or Integrator) must provide:
 - Commands run: list + outcome summary (if any)
 - Risk rating: Low/Med/High + reason
 - Logging status: `<PROJECT_ROOT>/.memory/CHANGELOG.md` updated; ROS Change Log updated if ROS-based
+
+### Post-Change Verification (Hard Rule)
+
+After completing any code/config/doc change, the Implementer (or Reviewer) must:
+
+1. **Identify affected scope**: list every file created, modified, or deleted, plus files that import/depend on them.
+2. **Full-content review**: read the complete content of each affected file (not just the diff) to verify:
+   - No syntax errors, typos, or broken references (imports, paths, URLs, cross-file calls).
+   - No logic bugs introduced by the change (off-by-one, wrong variable, missing return, race condition, etc.).
+   - No inconsistencies with the rest of the codebase (naming, API contracts, type signatures, config format).
+3. **Dependency check**: confirm that upstream callers / downstream consumers of changed interfaces still work correctly.
+4. **Report**: include verification results in the Evidence Pack (`Checks` field). If any issue is found, fix before requesting approval.
+
+> Rationale: reviewing only the diff is insufficient — bugs often hide in interactions between changed and unchanged code.
 
 ### Auto-Approval Gate (Coordinator can approve without user present ONLY if all true)
 
