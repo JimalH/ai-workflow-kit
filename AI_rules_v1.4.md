@@ -1,14 +1,14 @@
-
 # Project AI Rules (Tool-Agnostic)
 
 Version: v1.4
-Last Updated: 2026-04-22
+Last Updated: 2026-08-10
 
 ## 0) Default
 
 - Read this file first. If uncertain, ask; do not guess.
 - Goal: safe, reversible changes with full traceability.
 - Prompt echo (default): for every new request from chat, restate the user's prompt once in 1-2 lines before planning or execution.
+- Requirement clarification gate: after the user states a requirement, you may ask clarifying questions back to confirm it. Once you are confident you fully understand the intended outcome, confirm that understanding with the user, and only begin making changes after the user gives an explicit go-ahead.
 
 ## 1) Safety (Hard Rules)
 
