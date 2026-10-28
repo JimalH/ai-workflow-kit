@@ -1,6 +1,19 @@
 {
   "name": "ai-workflow-kit",
-  "owner": { "name": "JimalH", "url": "https://github.com/JimalH" },
-  "metadata": { "description": "JimalH's shared Claude Code mods, installable on any machine." },
-  "plugins": []
+  "owner": {
+    "name": "JimalH",
+    "url": "https://github.com/JimalH"
+  },
+  "metadata": {
+    "description": "JimalH's shared Claude Code mods, installable on any machine."
+  },
+  "plugins": [
+    {
+      "name": "jimal-progress",
+      "source": "./mods/jimal-progress",
+      "description": "Mod: progress bar above the prompt that fits the space left, plus a live agents panel (/agents-info). Fork of savvy-progress.",
+      "version": "1.3.0",
+      "category": "mod"
+    }
+  ]
 }

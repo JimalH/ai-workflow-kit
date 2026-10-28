@@ -75,4 +75,4 @@ When a mod here is based on another author's mod:
 
 | Mod | Description | Origin |
 | --- | --- | --- |
-| _(none yet)_ | | |
+| [jimal-progress](jimal-progress/) | Progress bar above the prompt that fits the space left, plus an agents panel | Fork of [savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) @ `c871c15` (MIT) |

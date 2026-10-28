@@ -1,0 +1,37 @@
+{
+  "name": "jimal-progress",
+  "version": "1.3.0",
+  "description": "Fork of savvy-progress: progress bar above the prompt that sizes itself to the space left, plus an agents panel (/agents-info).",
+  "author": {
+    "name": "JimalH",
+    "url": "https://github.com/JimalH"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Panel language",
+      "description": "auto follows Claude Code's language setting, then the system locale; en, ru or he (Hebrew, drawn right to left)",
+      "default": "auto",
+      "options": [
+        "auto",
+        "en",
+        "ru",
+        "he"
+      ]
+    },
+    "autoOpen": {
+      "type": "string",
+      "title": "Open the agents panel",
+      "description": "savvy: when a savvy-flow worker starts or a plan is reported; any: also when any other subagent starts",
+      "default": "savvy",
+      "options": [
+        "savvy",
+        "any"
+      ]
+    }
+  },
+  "homepage": "https://github.com/JimalH/ai-workflow-kit/tree/main/mods/jimal-progress",
+  "repository": "https://github.com/JimalH/ai-workflow-kit",
+  "license": "MIT"
+}
