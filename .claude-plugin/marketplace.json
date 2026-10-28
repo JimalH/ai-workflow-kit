@@ -19,7 +19,7 @@
       "name": "jimal-session",
       "source": "./mods/jimal-session",
       "description": "Mod: one line above the prompt with the prompt cache countdown and session/week time and usage left, plus Keep warm and Auto-handoff (handover note) switches.",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "category": "mod"
     },
     {

@@ -15,7 +15,7 @@ type World = {
 }
 
 // A session in E:\AI workflow on Windows, with the fork, files and commands recorded.
-async function session($: Engine, on: On, opts: { fork?: string; weekLeftMs?: number; noUsage?: boolean } = {}) {
+async function session($: Engine, on: On, opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean } = {}) {
   const world: World = { forks: [], writes: {}, runs: [], compacts: [], toasts: [] }
   const clock = mock.clock(on, { now: START })
   mock.env(on, { USERPROFILE: 'C:\\Users\\me' })
@@ -30,6 +30,7 @@ async function session($: Engine, on: On, opts: { fork?: string; weekLeftMs?: nu
   ] } }) as never)
   on('model.fork', (_$, e) => {
     world.forks.push((e as { prompt: string }).prompt)
+    if (opts.forkReason) return { value: { isAnswered: false, reason: opts.forkReason } } as never
     return { value: { isAnswered: true, text: opts.fork ?? 'ok', usage: null } } as never
   })
   on('fs.write', (_$, e) => {
@@ -40,6 +41,7 @@ async function session($: Engine, on: On, opts: { fork?: string; weekLeftMs?: nu
   })
   on('fs.read', (_$, e) => {
     const path = (e as { path: string }).path.replace(/\\/g, '/')
+    if (opts.skill && path.endsWith('/skills/handoff/SKILL.md')) return { value: opts.skill } as never
     return (path in world.writes ? { value: world.writes[path] } : { value: '' }) as never
   })
   on('fs.list', () => ({ value: [] }) as never)
@@ -195,12 +197,31 @@ test('auto-handoff: writes a note in the last minute; a compaction refused is sa
   expect(Object.keys(world.writes)).toHaveLength(1)
 })
 
-test('handoff-now: writes the note on demand and says whether it replaced the context', async ($, on) => {
-  const { world } = await session($, on, { fork: '## Goal\nShip the band.' })
+test('handoff-now: writes the note on demand, then applies it once the command has ended', async ($, on) => {
+  const { clock, world } = await session($, on, { fork: '## Goal\nShip the band.' })
   await answer($)
   const out = (await $.command.run({ command: 'handoff-now' } as never)) as { text: string }
   expect(Object.keys(world.writes)).toHaveLength(1)
-  expect(out.text).toMatch(/^Handover note saved to .*, but it did not replace the context: /)
+  expect(out.text).toMatch(/^Handover note saved to .*; it replaces the old context once this command ends/)
+  // Not under the command: the compaction is asked for after it.
+  expect(world.toasts).toHaveLength(0)
+  await clock.advance(2000)
+  expect(world.toasts.some(t => t.startsWith('Handover note saved, but not applied:'))).toBe(true)
+})
+
+test('handoff-now: a resumed conversation with nothing to write from says so', async ($, on) => {
+  await session($, on, { forkReason: 'nothing-to-fork' })
+  const out = (await $.command.run({ command: 'handoff-now' } as never)) as { text: string }
+  expect(out.text).toContain('needs one message first')
+})
+
+test('the note prompt leaves out the skill\'s saving step, which the fork cannot do', async ($, on) => {
+  const { world } = await session($, on, { skill:
+    '---\nname: handoff\n---\n\nWrite a handover note.\n\nRules:\n- Facts only.\n\nWhen invoked by hand (not by the jimal-session mod), also save the note with the Write tool.\n' })
+  await answer($)
+  await $.command.run({ command: 'handoff-now' } as never)
+  expect(world.forks[0]).toContain('Facts only.')
+  expect(world.forks[0]).not.toContain('Write tool')
 })
 
 test('compaction: the marked one is answered with the note, any other goes on', async ($, on) => {

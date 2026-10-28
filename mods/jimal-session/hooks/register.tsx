@@ -24,6 +24,8 @@ const ALERT_MS = 10 * 60 * 1000
 const NOTE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 // The instructions a compaction carries when this mod asks for it, so its own hook answers it.
 const COMPACT_MARK = 'jimal-session: handover note'
+// /handoff-now applies its note this long after the command ends.
+const APPLY_DELAY_MS = 1000
 const KEEP_WARM_PROMPT = 'Keep-alive ping to refresh the prompt cache. Reply with "ok" only.'
 
 const GREEN = '#4caf6e'
@@ -132,7 +134,11 @@ const readNote = async ($: EngineInterface, path: string): Promise<string | null
 // The handoff skill's body (without its frontmatter) is the note's prompt.
 const handoffPrompt = async ($: EngineInterface): Promise<string> => {
   const skill = await $.fs.read(`${$.plugin.root}/skills/handoff/SKILL.md`).catch(() => '')
-  const body = skill.replace(/^---[\s\S]*?---\s*/, '').trim()
+  const body = skill
+    .replace(/^---[\s\S]*?---\s*/, '')
+    // The skill's own saving step is for a run by hand: the fork has no tools, and this mod saves the note.
+    .replace(/\n+When invoked by hand[\s\S]*$/, '')
+    .trim()
   return body || 'Write a concise handover note (goal, current state, decisions, next steps, open questions) so a fresh conversation can continue this work. Output only the note.'
 }
 
@@ -166,7 +172,13 @@ const writeNote = async ($: EngineInterface, deadline: number): Promise<{ path: 
   const r = await $.model.fork({ prompt: await handoffPrompt($) })
   if (!r.isAnswered || !r.text.trim()) {
     await update($, handoff, prev => ({ ...prev, status: 'failed' }))
-    return { reason: r.isAnswered ? 'the note came back empty' : `the note could not be written (${r.reason})` }
+    return {
+      reason: r.isAnswered
+        ? 'the note came back empty'
+        : r.reason === 'nothing-to-fork'
+          ? 'nothing to write it from yet (a resumed conversation needs one message first)'
+          : `the note could not be written (${r.reason})`,
+    }
   }
   const path = `${await notesDir($)}/${stamp(await $.clock.now())}-${(await $.session.id()).slice(0, 8)}.md`
   await $.fs.write(path, r.text.trim() + '\n')
@@ -251,17 +263,19 @@ export const register: Register = on => {
   })
 
   // The auto-handoff on demand: the way to try it without waiting out the cache, and to
-  // hand a long conversation over by hand.
+  // hand a long conversation over by hand. The host refuses a compaction under the command
+  // that asks for it, so the note is applied from a timer once the command has ended, as
+  // the auto-handoff applies it, and a toast says whether it worked.
   on('command.run', { command: 'handoff-now' }, async $ => {
     const at = await $.clock.now()
     const note = await writeNote($, (await read($, expiresAt)) ?? at)
     if ('reason' in note) return { text: `Handover note not written: ${note.reason}.` }
-    const applied = await applyNote($, note.text)
-    return {
-      text: applied.isApplied
-        ? `Handover note saved to ${note.path} and now stands in for the old context.`
-        : `Handover note saved to ${note.path}, but it did not replace the context: ${applied.reason}`,
-    }
+    $.clock.after(APPLY_DELAY_MS, () => {
+      void applyNote($, note.text)
+        .then(applied => $.ui.toast(applied.isApplied ? 'Old context replaced by the handover note.' : `Handover note saved, but not applied: ${applied.reason}`))
+        .catch(() => undefined)
+    })
+    return { text: `Handover note saved to ${note.path}; it replaces the old context once this command ends (a toast says whether it did).` }
   })
 
   on('session.measure', async ($, e, next) => {

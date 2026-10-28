@@ -49,3 +49,9 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 
 - A refused compaction is reported (toast, `note not applied` in the band, the reason in the debug log) instead of being silent, and the note is no longer deleted as if it had been used.
 - `/handoff-now`: the auto-handoff on demand, with its outcome.
+
+## Changes (0.3.1)
+
+- `/handoff-now` applies its note from a timer once the command has ended (the host refuses a compaction under the command that asks for it); a toast says whether it worked.
+- The note prompt leaves out the handoff skill's saving step: the fork has no tools, and its notes ended with a request to save them by hand.
+- In a resumed conversation before its first message, `/handoff-now` says it needs one message first instead of `nothing-to-fork`.
