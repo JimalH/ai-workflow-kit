@@ -40,12 +40,13 @@ const pad = (n: number) => String(n).padStart(2, '0')
 // Cache countdown
 
 const cacheColor = (left: number | null, isWorking: boolean): string =>
-  isWorking || left === null ? GREEN : left <= 0 ? GREY : left <= ALERT_MS ? RED : left <= WARN_MS ? AMBER : GREEN
+  isWorking ? GREEN : left === null || left <= 0 ? GREY : left <= ALERT_MS ? RED : left <= WARN_MS ? AMBER : GREEN
 
-// `cache warm`, `cache warm 24m` in its last half hour, `cache expired`; a turn keeps it warm.
+// `cache cold` before the first answer, `cache warm`, `cache warm 24m` in its last half hour, `cache expired`; a turn keeps it warm.
 const cacheText = (left: number | null, isWorking: boolean): string => {
   if (isWorking) return 'cache warm'
-  if (left === null) return 'cache —'
+  // No answer yet in this conversation: nothing is cached.
+  if (left === null) return 'cache cold'
   if (left <= 0) return 'cache expired'
   // Nothing to watch yet: the minutes show only in the last half hour.
   if (left > SHOW_MS) return 'cache warm'
@@ -200,19 +201,28 @@ const tick = async ($: EngineInterface): Promise<void> => {
 }
 
 // ---------------------------------------------------------------------------
+// Usage windows: an empty reading (before the first answer, a reload, or a measure of
+// something else) never wipes the last one; with none yet, the band shows no usage.
+
+const keepLimits = async ($: EngineInterface, limits: readonly RateWindow[]): Promise<void> => {
+  if (limits.length === 0) return
+  await update($, rateLimits, () => limits.map(w => ({ kind: w.kind, percentUsed: w.percentUsed, resetsAt: w.resetsAt })))
+}
+
+// ---------------------------------------------------------------------------
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     const { rateLimits: limits } = await $.session.usage().catch(() => ({ rateLimits: [] as RateWindow[] }))
-    await update($, rateLimits, () => limits.map(w => ({ kind: w.kind, percentUsed: w.percentUsed, resetsAt: w.resetsAt })))
+    await keepLimits($, limits)
     await pruneNotes($).catch(() => undefined)
     $.clock.every(1000, () => void tick($).catch(() => undefined))
     return started
   })
 
   on('session.measure', async ($, e, next) => {
-    await update($, rateLimits, () => e.rateLimits.map(w => ({ kind: w.kind, percentUsed: w.percentUsed, resetsAt: w.resetsAt })))
+    await keepLimits($, e.rateLimits)
     return next(e)
   })
 
@@ -324,9 +334,12 @@ export const register: Register = on => {
     ]
     const shown =
       plan.find(p =>
-        width([`● ${p.cache}`, ...(p.session ? [sessionText] : []), ...(p.week ? [weekText] : []), ...(p.note && note && !isWarm ? [note] : [])]) <= room,
+        width([`● ${p.cache}`, ...(p.session && session ? [sessionText] : []), ...(p.week && week ? [weekText] : []), ...(p.note && note && !isWarm ? [note] : [])]) <= room,
       ) ?? plan[plan.length - 1]!
     const shownNote = shown.note && note && !isWarm ? note : ''
+    // A window with no reading yet is left out, rather than shown as dashes.
+    const showSession = shown.session && session !== undefined
+    const showWeek = shown.week && week !== undefined
 
     // One line of plain figures between bars: `● cache warm 24m | 1h 95% · 13h 18%`; past
     // the estimate, the line is cut at its end rather than move the switches.
@@ -336,15 +349,15 @@ export const register: Register = on => {
           <Text color={color}>●</Text>
           <Text color={color}>{shown.cache}</Text>
         </Box>
-        {shown.session ? <Text dimColor>|</Text> : null}
+        {showSession || showWeek ? <Text dimColor>|</Text> : null}
         {/* Session, then week: `1h 95% · 1d 18%`; a percent turns amber or red as it runs low. */}
-        {shown.session ? (
+        {showSession || showWeek ? (
           <Box flexDirection="row" columnGap={1} flexShrink={0}>
-            <Text dimColor>{timeLeft(session, at, false)}</Text>
-            <Text color={usageColor(session)} dimColor={!usageColor(session)}>{percentLeft(session)}</Text>
-            {shown.week ? <Text dimColor>·</Text> : null}
-            {shown.week ? <Text dimColor>{timeLeft(week, at, true)}</Text> : null}
-            {shown.week ? <Text color={usageColor(week)} dimColor={!usageColor(week)}>{percentLeft(week)}</Text> : null}
+            {showSession ? <Text dimColor>{timeLeft(session, at, false)}</Text> : null}
+            {showSession ? <Text color={usageColor(session)} dimColor={!usageColor(session)}>{percentLeft(session)}</Text> : null}
+            {showSession && showWeek ? <Text dimColor>·</Text> : null}
+            {showWeek ? <Text dimColor>{timeLeft(week, at, true)}</Text> : null}
+            {showWeek ? <Text color={usageColor(week)} dimColor={!usageColor(week)}>{percentLeft(week)}</Text> : null}
           </Box>
         ) : null}
         {shownNote ? <Text dimColor>|</Text> : null}

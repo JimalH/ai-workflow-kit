@@ -2,8 +2,8 @@
 
 A Claude Code mod: one band above the prompt with the session's clock and limits, plus two switches.
 
-- **Cache**: `● cache warm`, then `● cache warm 24m` in the last half hour of the main conversation's 1-hour prompt cache (whole minutes), `● cache expired` after. Green above 20 minutes, amber from 20, red from 10, grey once expired. The band is one line of plain figures separated by `|`.
-- **Usage**: `3h 62% · 4d 80%`: hours left in the 5-hour window and its usage left, then days left in the weekly window (hours once less than a day is left) and its usage left. Amber from 75% used, red from 90%. Shown on a subscription; `—` otherwise.
+- **Cache**: `● cache cold` before the first answer, `● cache warm`, then `● cache warm 24m` in the last half hour of the main conversation's 1-hour prompt cache (whole minutes), `● cache expired` after. Grey before the first answer and once expired; green above 20 minutes, amber from 20, red from 10. The band is one line of plain figures separated by `|`.
+- **Usage**: `3h 62% · 4d 80%`: hours left in the 5-hour window and its usage left, then days left in the weekly window (hours once less than a day is left) and its usage left. Amber from 75% used, red from 90%. Shown once a reading comes in (on a subscription, after the first answer); left out until then.
 - **Switches**: `● Keep warm` / `● Auto-handoff`: a dot (green while on, grey while off) and a plain (frameless) label, dim while off; click the label to toggle. They exclude each other: while one is on, the other is hidden and its room goes to the figures. Auto-handoff sits at the right end and never moves. When the row is short, the figures give way one at a time (the note, the week, the 5-hour window, then the cache line shrinks to its minutes); the switches keep their place.
 - **Keep warm** (off by default): when the cache has one minute left (59 minutes after the last request) and nothing is running, the mod sends one hidden forked request over the conversation, which reads it from the cache and refreshes it for another hour. Nothing is added to the transcript, but each refresh costs a cache read of the whole context and counts toward usage limits.
 - **Auto-handoff** (off by default): in the cache's last minute, the mod asks a hidden forked request to write a handover note with the `handoff` skill, and saves it to `~/.claude/handoffs/<project-key>/<YYYYMMDD-HHMMSS>-<session>.md` (`<project-key>`: the project root with every non-alphanumeric character replaced by `-`, e.g. `E--AI-workflow`).
@@ -34,3 +34,8 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 - Switches as a coloured dot and a plain label; exclusive, Auto-handoff fixed at the right end, a hidden switch's room given to the figures.
 - A short row drops the figures one at a time instead of moving the switches.
 - Auto-handoff compacts with the note right after writing it, in the cache's last minute.
+
+## Changes (0.2.1)
+
+- An empty usage reading (before the first answer, a reload) no longer wipes the figures.
+- No reading yet: the usage is left out instead of shown as dashes; the cache line reads `cache cold`, in grey.

@@ -15,7 +15,7 @@ type World = {
 }
 
 // A session in E:\AI workflow on Windows, with the fork, files and commands recorded.
-async function session($: Engine, on: On, opts: { fork?: string; weekLeftMs?: number } = {}) {
+async function session($: Engine, on: On, opts: { fork?: string; weekLeftMs?: number; noUsage?: boolean } = {}) {
   const world: World = { forks: [], writes: {}, runs: [], compacts: [], toasts: [] }
   const clock = mock.clock(on, { now: START })
   mock.env(on, { USERPROFILE: 'C:\\Users\\me' })
@@ -24,7 +24,7 @@ async function session($: Engine, on: On, opts: { fork?: string; weekLeftMs?: nu
   on('session.cwd', () => ({ value: 'E:\\AI workflow' }) as never)
   on('session.id', () => ({ value: 'abcdef1234567890' }) as never)
   on('session.turns', () => ({ value: 3 }) as never)
-  on('session.usage', () => ({ value: { startedAt: START, context: {}, rateLimits: [
+  on('session.usage', () => ({ value: { startedAt: START, context: {}, rateLimits: opts.noUsage ? [] : [
     { kind: 'five_hour', percentUsed: 38, resetsAt: new Date(START + 3 * 60 * MIN - 1).toISOString() },
     { kind: 'seven_day', percentUsed: 20, resetsAt: new Date(START + (opts.weekLeftMs ?? 4 * 24 * 60 * MIN - 1)).toISOString() },
   ] } }) as never)
@@ -55,6 +55,7 @@ async function session($: Engine, on: On, opts: { fork?: string; weekLeftMs?: nu
     return { skip: 'test: no model compaction here' } as never
   })
   on('turn.complete', async () => ({ text: '' }) as never)
+  on('session.measure', () => ({ changed: ['context'] }) as never)
   on('prompt.submit', (_$, e) => ({ text: (e as { text: string }).text }) as never)
   on('ui.toast', (_$, e) => {
     world.toasts.push(String((e as { text: string }).text))
@@ -104,7 +105,7 @@ async function press($: Engine, key: string) {
 
 test('band: cache countdown changes colour as it runs out', async ($, on) => {
   const { clock } = await session($, on)
-  expect(await texts($)).toContain('cache —')
+  expect(await texts($)).toContain('cache cold')
 
   // More than half an hour left: warm, no minutes.
   await answer($)
@@ -254,4 +255,23 @@ test('band: the room a hidden switch frees goes to the figures', async ($, on) =
   expect(await texts()).not.toContain('4d')
   await press($, 'auto-handoff')
   expect(await texts()).toContain('4d')
+})
+
+test('usage: an empty reading keeps the last one', async ($, on) => {
+  await session($, on)
+  expect(await texts($)).toContain('62%')
+  // A measure with no windows (a reload, the first answer not in yet) leaves them as they were.
+  await ($.session.measure as unknown as (e: unknown) => Promise<unknown>)({ context: {}, rateLimits: [], changed: ['context'] })
+  expect(await texts($)).toContain('62%')
+})
+
+test('usage: with no reading yet, the band shows a grey cold cache and no usage', async ($, on) => {
+  await session($, on, { noUsage: true })
+  const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
+  const found = await ui.findAll({ type: 'Text' })
+  await ui.unmount()
+  const texts = found.map(t => t.text)
+  expect(texts).toContain('cache cold')
+  expect(found.find(t => t.text === 'cache cold')?.props.color).toBe('#8a8f8c')
+  expect(texts.some(t => t.includes('%') || t === '—')).toBe(false)
 })
