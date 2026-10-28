@@ -292,3 +292,18 @@ test('usage: with no reading yet, the band shows a grey cold cache and no usage'
   expect(found.find(t => t.text === 'cache cold')?.props.color).toBe('#8a8f8c')
   expect(texts.some(t => t.includes('%') || t === '—')).toBe(false)
 })
+
+test('compaction: a note in Chinese is framed and acknowledged in Chinese', async ($, on) => {
+  await session($, on)
+  const compact = $.session.compact as unknown as (e: unknown) => Promise<{ messages?: { role: string; text: string }[] }>
+  const marked = await compact({ trigger: 'plugin', instructions: 'jimal-session: handover note\n## Goal\n检查重复。', messages: [] })
+  expect(marked.messages?.[0]?.text).toContain('请从这份笔记继续，并用中文回复')
+  expect(marked.messages?.[1]?.text).toBe('好的，我会按这份交接笔记继续。')
+})
+
+test('compaction: a bare /compact with the short mark and no note waiting goes on to the engine', async ($, on) => {
+  const { world } = await session($, on)
+  const compact = $.session.compact as unknown as (e: unknown) => Promise<unknown>
+  await compact({ trigger: 'manual', instructions: 'jimal-session handoff', messages: [{ role: 'user', text: 'old', toolUses: [] }] })
+  expect(world.compacts).toEqual(['jimal-session handoff'])
+})

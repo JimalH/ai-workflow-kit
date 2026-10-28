@@ -142,8 +142,24 @@ const handoffPrompt = async ($: EngineInterface): Promise<string> => {
   return body || 'Write a concise handover note (goal, current state, decisions, next steps, open questions) so a fresh conversation can continue this work. Output only the note.'
 }
 
+// The note is written in the user's language; what this mod says around it follows the note,
+// so a handed-over conversation does not drift back to English.
+const isChinese = (text: string) => /[一-鿿]/.test(text)
+const say = (note: string, en: string, zh: string) => (isChinese(note) ? zh : en)
+
 const noteMessage = (note: string) =>
-  `[Handover note from an earlier conversation, written by the jimal-session mod. The earlier messages are no longer in context; continue from this note.]\n\n${note}`
+  say(
+    note,
+    '[Handover note from an earlier conversation, written by the jimal-session mod. The earlier messages are no longer in context; continue from this note, and reply in the language it is written in.]',
+    '[这是之前对话的交接笔记，由 jimal-session 写入。之前的消息已不在上下文中，请从这份笔记继续，并用中文回复。]',
+  ) + `\n\n${note}`
+
+const noteAck = (note: string) => say(note, 'Understood. I will continue from this handover note.', '好的，我会按这份交接笔记继续。')
+
+const appliedToast = (note: string, applied: { isApplied: true } | { isApplied: false; reason: string }) =>
+  applied.isApplied
+    ? say(note, 'Old context replaced by the handover note.', '旧的上下文已换成交接笔记。')
+    : say(note, `Handover note saved, but not applied: ${applied.reason}`, `交接笔记已保存，但没有生效：${applied.reason}`)
 
 // ---------------------------------------------------------------------------
 // The last minute: keep warm refreshes the cache, else auto-handoff writes a note.
@@ -196,6 +212,11 @@ const writeNote = async ($: EngineInterface, deadline: number): Promise<{ path: 
 // compaction runs as the /compact command, which this mod's session.compact hook answers.
 const isSdkRefusal = (reason: string) => /headless|SDK/.test(reason)
 
+// The /compact command shows its arguments in the chat, so it carries this short mark alone
+// and the note waits here for the session.compact hook: the handoff stays quiet.
+const COMPACT_ARG = 'jimal-session handoff'
+let pendingNote: string | null = null
+
 const applyNote = async ($: EngineInterface, text: string): Promise<{ isApplied: true } | { isApplied: false; reason: string }> => {
   const instructions = `${COMPACT_MARK}\n${text}`
   let reason = ''
@@ -210,13 +231,16 @@ const applyNote = async ($: EngineInterface, text: string): Promise<{ isApplied:
     reason = String((err as Error)?.message ?? err)
   }
   if (isSdkRefusal(reason)) {
+    pendingNote = text
     try {
-      const ran = await $.command.run({ command: 'compact', args: instructions })
+      const ran = await $.command.run({ command: 'compact', args: COMPACT_ARG })
       // The hook below marks the note applied when it answers this compaction.
       if ((await read($, handoff)).isApplied) return { isApplied: true }
       reason = `${reason}; /compact ran but did not reach this mod's answer${ran.text ? `: ${ran.text}` : ''}`
     } catch (err) {
       reason = `${reason}; /compact failed: ${String((err as Error)?.message ?? err)}`
+    } finally {
+      pendingNote = null
     }
   }
   await update($, handoff, prev => ({ ...prev, status: 'unapplied' }))
@@ -233,7 +257,7 @@ const writeHandoff = async ($: EngineInterface, deadline: number): Promise<void>
     return
   }
   const applied = await applyNote($, note.text)
-  $.ui.toast(applied.isApplied ? 'Old context replaced by the handover note.' : `Handover note saved, but not applied: ${applied.reason}`)
+  $.ui.toast(appliedToast(note.text, applied))
 }
 
 const tick = async ($: EngineInterface): Promise<void> => {
@@ -287,10 +311,16 @@ export const register: Register = on => {
     if ('reason' in note) return { text: `Handover note not written: ${note.reason}.` }
     $.clock.after(APPLY_DELAY_MS, () => {
       void applyNote($, note.text)
-        .then(applied => $.ui.toast(applied.isApplied ? 'Old context replaced by the handover note.' : `Handover note saved, but not applied: ${applied.reason}`))
+        .then(applied => $.ui.toast(appliedToast(note.text, applied)))
         .catch(() => undefined)
     })
-    return { text: `Handover note saved to ${note.path}; it replaces the old context once this command ends (a toast says whether it did).` }
+    return {
+      text: say(
+        note.text,
+        `Handover note saved to ${note.path}; it replaces the old context once this command ends (a toast says whether it did).`,
+        `交接笔记已保存到 ${note.path}；命令结束后会替换旧的上下文（是否成功会有提示）。`,
+      ),
+    }
   })
 
   on('session.measure', async ($, e, next) => {
@@ -316,17 +346,20 @@ export const register: Register = on => {
   // The compaction this mod asks for: the saved note stands in for the summary,
   // so no model request reads the cold transcript.
   on('session.compact', async ($, e, next) => {
-    if (e.agentId !== undefined || e.instructions?.startsWith(COMPACT_MARK) !== true) return next(e)
-    const note = e.instructions.slice(COMPACT_MARK.length).trim()
+    if (e.agentId !== undefined) return next(e)
+    const isOurs = e.instructions?.startsWith(COMPACT_MARK) === true || (e.instructions?.trim() === COMPACT_ARG && pendingNote !== null)
+    if (!isOurs) return next(e)
+    const note = e.instructions?.trim() === COMPACT_ARG ? (pendingNote ?? '') : (e.instructions ?? '').slice(COMPACT_MARK.length).trim()
+    if (!note) return { skip: 'jimal-session: the handover note was not there to apply' }
     await update($, handoff, prev => ({ ...prev, isApplied: true }))
     const messages: SessionMessage[] = [
       { role: 'user', text: noteMessage(note), toolUses: [] },
-      { role: 'assistant', text: 'Understood. I will continue from this handover note.', toolUses: [] },
+      { role: 'assistant', text: noteAck(note), toolUses: [] },
     ]
     return { messages }
   }).catch(($, e, next) =>
     // Never let a failed answer fall through to a model compaction of the cold transcript.
-    e.instructions?.startsWith(COMPACT_MARK) ? { skip: 'jimal-session: the handover note could not be applied' } : next(e),
+    e.instructions?.startsWith(COMPACT_MARK) || e.instructions?.trim() === COMPACT_ARG ? { skip: 'jimal-session: the handover note could not be applied' } : next(e),
   )
 
   on('prompt.submit', async ($, e, next) => {
@@ -348,7 +381,7 @@ export const register: Register = on => {
       const note = newest ? await readNote($, newest.path) : null
       if (newest && note) {
         await deleteFile($, newest.path)
-        $.ui.toast('Handover note loaded into this prompt.')
+        $.ui.toast(say(note, 'Handover note loaded into this prompt.', '交接笔记已载入这条消息。'))
         return next({ ...e, text: `${noteMessage(note)}\n\n---\n\n${e.text}` })
       }
     }

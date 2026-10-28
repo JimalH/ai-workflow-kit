@@ -63,3 +63,8 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 ## Changes (0.3.3)
 
 - The fallback runs `/compact` with `$.command.run` (the engine refuses a mod's prompt that starts with `/`).
+
+## Changes (0.3.4)
+
+- Quiet handoff: `/compact` carries only the short mark `jimal-session handoff`; the note waits in the mod and is not shown in the chat.
+- What the mod says around a note follows the note's language (a Chinese note gets a Chinese frame, reply and toasts), so the conversation does not drift back to English.
