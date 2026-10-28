@@ -4,7 +4,7 @@ export type RateWindow = {
   resetsAt?: string
 }
 
-export type HandoffStatus = 'idle' | 'writing' | 'saved' | 'failed'
+export type HandoffStatus = 'idle' | 'writing' | 'saved' | 'unapplied' | 'failed'
 
 export type Handoff = {
   status: HandoffStatus

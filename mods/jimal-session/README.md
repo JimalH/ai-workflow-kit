@@ -9,8 +9,13 @@ A Claude Code mod: one band above the prompt with the session's clock and limits
 - **Auto-handoff** (off by default): in the cache's last minute, the mod asks a hidden forked request to write a handover note with the `handoff` skill, and saves it to `~/.claude/handoffs/<project-key>/<YYYYMMDD-HHMMSS>-<session>.md` (`<project-key>`: the project root with every non-alphanumeric character replaced by `-`, e.g. `E--AI-workflow`).
   - Right after it is saved, still in the cache's last minute, the note replaces the old context as a compaction that the mod answers itself: no model request reads the transcript again, and the old messages stay on screen.
   - The next prompt in this session starts from the note, and uses it up (the file is deleted automatically).
+  - If the compaction is refused, a toast says why and the band shows `note not applied`: the session keeps its own context, and the note file is kept for a new conversation in the project.
   - The first prompt of a new conversation in the same project starts from the newest note left there (prepended to the prompt), and deletes it.
   - Notes older than 30 days are deleted when a session starts. No note found: everything works as without the mod.
+
+## Commands
+
+`/handoff-now`: write a handover note now and let it replace this conversation's context (old messages stay on screen); the reply says whether it worked and, if not, why. Try it first in a conversation you do not need.
 
 ## Skill
 
@@ -39,3 +44,8 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 
 - An empty usage reading (before the first answer, a reload) no longer wipes the figures.
 - No reading yet: the usage is left out instead of shown as dashes; the cache line reads `cache cold`, in grey.
+
+## Changes (0.3.0)
+
+- A refused compaction is reported (toast, `note not applied` in the band, the reason in the debug log) instead of being silent, and the note is no longer deleted as if it had been used.
+- `/handoff-now`: the auto-handoff on demand, with its outcome.

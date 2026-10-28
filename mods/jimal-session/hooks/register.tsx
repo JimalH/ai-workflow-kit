@@ -160,12 +160,13 @@ const warm = async ($: EngineInterface): Promise<void> => {
   }
 }
 
-const writeHandoff = async ($: EngineInterface, deadline: number): Promise<void> => {
+// Writes a handover note with a forked request and saves it; the reason when it fails.
+const writeNote = async ($: EngineInterface, deadline: number): Promise<{ path: string; text: string } | { reason: string }> => {
   await update($, handoff, prev => ({ ...prev, status: 'writing', forExpiresAt: deadline }))
   const r = await $.model.fork({ prompt: await handoffPrompt($) })
   if (!r.isAnswered || !r.text.trim()) {
     await update($, handoff, prev => ({ ...prev, status: 'failed' }))
-    return
+    return { reason: r.isAnswered ? 'the note came back empty' : `the note could not be written (${r.reason})` }
   }
   const path = `${await notesDir($)}/${stamp(await $.clock.now())}-${(await $.session.id()).slice(0, 8)}.md`
   await $.fs.write(path, r.text.trim() + '\n')
@@ -173,15 +174,39 @@ const writeHandoff = async ($: EngineInterface, deadline: number): Promise<void>
   const prev = (await read($, handoff)).path
   if (prev && prev !== path) await deleteFile($, prev)
   await update($, handoff, () => ({ status: 'saved', path, forExpiresAt: deadline }))
+  return { path, text: r.text.trim() }
+}
 
-  // The note replaces the old context at once, still in the cache's last minute, as a
-  // compaction this mod answers itself: no model request, the old messages stay on
-  // screen. The file stays until the next prompt, so a new conversation can still start from it.
-  const compacted = await $.session.compact({ instructions: `${COMPACT_MARK}\n${r.text.trim()}` }).catch(() => null)
-  if (compacted && 'messages' in compacted && compacted.messages) {
-    await update($, handoff, prev => ({ ...prev, isApplied: true }))
-    $.ui.toast('Old context replaced by the handover note.')
+// The note replaces the old context, as a compaction this mod answers itself: no model
+// request, the old messages stay on screen. A refusal is said, never swallowed: the note
+// then stays unapplied (kept for a new conversation) and the band says so.
+const applyNote = async ($: EngineInterface, text: string): Promise<{ isApplied: true } | { isApplied: false; reason: string }> => {
+  let reason = ''
+  try {
+    const compacted = await $.session.compact({ instructions: `${COMPACT_MARK}\n${text}` })
+    if ('messages' in compacted && compacted.messages) {
+      await update($, handoff, prev => ({ ...prev, isApplied: true }))
+      return { isApplied: true }
+    }
+    reason = 'skip' in compacted && compacted.skip ? compacted.skip : 'the compaction returned nothing'
+  } catch (err) {
+    reason = String((err as Error)?.message ?? err)
   }
+  await update($, handoff, prev => ({ ...prev, status: 'unapplied' }))
+  $.ui.log(`jimal-session: the handover note was not applied: ${reason}`, { to: 'debug' })
+  return { isApplied: false, reason }
+}
+
+// In the cache's last minute: write the note, then let it replace the old context at once.
+// The file stays until the next prompt, so a new conversation can still start from it.
+const writeHandoff = async ($: EngineInterface, deadline: number): Promise<void> => {
+  const note = await writeNote($, deadline)
+  if ('reason' in note) {
+    $.ui.toast(`Auto-handoff: ${note.reason}.`)
+    return
+  }
+  const applied = await applyNote($, note.text)
+  $.ui.toast(applied.isApplied ? 'Old context replaced by the handover note.' : `Handover note saved, but not applied: ${applied.reason}`)
 }
 
 const tick = async ($: EngineInterface): Promise<void> => {
@@ -217,8 +242,26 @@ export const register: Register = on => {
     const { rateLimits: limits } = await $.session.usage().catch(() => ({ rateLimits: [] as RateWindow[] }))
     await keepLimits($, limits)
     await pruneNotes($).catch(() => undefined)
+    await $.command.register({
+      name: 'handoff-now',
+      description: 'Write a handover note now and let it replace this conversation\'s context (old messages stay on screen); says whether it worked',
+    }).catch(() => undefined)
     $.clock.every(1000, () => void tick($).catch(() => undefined))
     return started
+  })
+
+  // The auto-handoff on demand: the way to try it without waiting out the cache, and to
+  // hand a long conversation over by hand.
+  on('command.run', { command: 'handoff-now' }, async $ => {
+    const at = await $.clock.now()
+    const note = await writeNote($, (await read($, expiresAt)) ?? at)
+    if ('reason' in note) return { text: `Handover note not written: ${note.reason}.` }
+    const applied = await applyNote($, note.text)
+    return {
+      text: applied.isApplied
+        ? `Handover note saved to ${note.path} and now stands in for the old context.`
+        : `Handover note saved to ${note.path}, but it did not replace the context: ${applied.reason}`,
+    }
   })
 
   on('session.measure', async ($, e, next) => {
@@ -260,10 +303,11 @@ export const register: Register = on => {
     if (e.command || e.isMeta) return next(e)
     const ho = await read($, handoff)
 
-    // This session's note already stands in for the old context (writeHandoff): the
-    // first prompt after it uses it up.
+    // This session's note stands in for the old context once applied (writeHandoff): the
+    // first prompt after it uses it up. One that was not applied is kept for a new
+    // conversation in this project, and this session goes on with its own context.
     if (ho.path) {
-      await deleteFile($, ho.path)
+      if (ho.isApplied) await deleteFile($, ho.path)
       await update($, handoff, () => ({ status: 'idle' }))
       return next(e)
     }
@@ -312,7 +356,7 @@ export const register: Register = on => {
       ) : null
 
     const note =
-      ho.status === 'writing' ? 'writing note…' : ho.status === 'saved' ? 'note saved' : ho.status === 'failed' ? 'note failed' : ''
+      ho.status === 'writing' ? 'writing note…' : ho.status === 'saved' ? 'note saved' : ho.status === 'unapplied' ? 'note not applied' : ho.status === 'failed' ? 'note failed' : ''
 
     const cache = cacheText(left, isWorking)
     const sessionText = `${timeLeft(session, at, false)} ${percentLeft(session)}`

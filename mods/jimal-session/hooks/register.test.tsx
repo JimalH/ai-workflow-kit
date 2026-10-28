@@ -170,7 +170,7 @@ test('keep warm: refreshes the cache 59 minutes after the last answer', async ($
   expect(await frameOf($, 'auto-handoff')).toBeNull()
 })
 
-test('auto-handoff: writes a note in the last minute and the next prompt uses it up', async ($, on) => {
+test('auto-handoff: writes a note in the last minute; a compaction refused is said, and the note is kept', async ($, on) => {
   const { clock, world } = await session($, on, { fork: '## Goal\nShip the band.' })
   await answer($)
   const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
@@ -182,29 +182,25 @@ test('auto-handoff: writes a note in the last minute and the next prompt uses it
   expect(paths).toHaveLength(1)
   expect(paths[0]).toMatch(/^C:\/Users\/me\/\.claude\/handoffs\/E--AI-workflow\/\d{8}-\d{6}-abcdef12\.md$/)
   expect(world.forks[0]).toContain('handover note')
-  expect(await texts($)).toContain('note saved')
 
-  // Right after the note, still in the last minute, the mod asks for the note's
-  // compaction (the kit has no transcript to hand it, so its effect is tested below).
-  // The file stays until the next prompt, even after the cache lapsed.
+  // The kit has no transcript for a compaction to read, so it refuses one: the band and a
+  // toast say the note was not applied (the compaction's answer is tested below).
+  expect(await texts($)).toContain('note not applied')
+  expect(world.toasts.some(t => t.startsWith('Handover note saved, but not applied:'))).toBe(true)
+
+  // Not applied, the note is not used up by the next prompt: kept for a new conversation.
   await clock.advance(2 * MIN)
-  expect(Object.keys(world.writes)).toHaveLength(1)
   await $.prompt.submit({ text: 'What next?' } as never)
-  expect(world.runs.some(argv => argv.includes('del'))).toBe(true)
-  expect(Object.keys(world.writes)).toHaveLength(0)
+  expect(world.runs.some(argv => argv.includes('del'))).toBe(false)
+  expect(Object.keys(world.writes)).toHaveLength(1)
 })
 
-test('auto-handoff: a prompt in the last minute uses the note up too', async ($, on) => {
-  const { clock, world } = await session($, on, { fork: '## Goal\nShip the band.' })
+test('handoff-now: writes the note on demand and says whether it replaced the context', async ($, on) => {
+  const { world } = await session($, on, { fork: '## Goal\nShip the band.' })
   await answer($)
-  const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
-  await ui.press({ key: 'auto-handoff' })
-  await ui.unmount()
-
-  await clock.advance(59 * MIN + 2000)
+  const out = (await $.command.run({ command: 'handoff-now' } as never)) as { text: string }
   expect(Object.keys(world.writes)).toHaveLength(1)
-  await $.prompt.submit({ text: 'Back in time' } as never)
-  expect(Object.keys(world.writes)).toHaveLength(0)
+  expect(out.text).toMatch(/^Handover note saved to .*, but it did not replace the context: /)
 })
 
 test('compaction: the marked one is answered with the note, any other goes on', async ($, on) => {
