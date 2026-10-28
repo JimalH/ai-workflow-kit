@@ -1,6 +1,6 @@
 {
   "name": "jimal-filetree",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Fork of filetree: IDE-style file tree that also marks the files Claude plans to change, is changing and has changed (with a legend), opening their folders",
   "types": "./types/index.d.ts",
   "author": {

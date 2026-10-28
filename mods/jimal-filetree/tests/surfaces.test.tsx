@@ -2747,3 +2747,36 @@ test('line counts: outside a git repo, the lines Claude changes show beside the 
   expect(right).toContain('-2')
   await ui.unmount()
 })
+
+test('click: a second click on the selected file clears the selection; a double-click on it still opens it', { timeoutMs: 20_000 }, async ($, on) => {
+  const ran: Ran = []
+  const root = '/home/k/scratch'
+  const clock = world(on, { os: 'linux', env: { HOME: '/home/k' }, cwd: root, top: '', dirs: { [root]: [['a.txt', 'file'], ['b.txt', 'file']] }, status: '', numstat: '' }, ran)
+  await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'jimal-filetree', surface: 'terminal', component: 'Pane', requestId: 'jimal-filetree', props: paneProps(60) })
+  await clock.settle()
+  const active = async () => treeRows(await ui.drawn()).active
+  const file = `${root}/a.txt`
+
+  await ui.post({ press: file }, { in: 'rows' })
+  await clock.advance(1_000)
+  expect(await active()).toBe(file)
+
+  // A later click on it: unselected once a double-click can no longer follow.
+  await ui.post({ press: file }, { in: 'rows' })
+  await clock.advance(100)
+  expect(await active()).toBe(file)
+  await clock.advance(500)
+  expect(await active()).toBe('')
+
+  // Selected again, then double-clicked: it opens and stays selected.
+  await ui.post({ press: file }, { in: 'rows' })
+  await clock.advance(1_000)
+  await ui.post({ press: file }, { in: 'rows' })
+  await ui.post({ press: file }, { in: 'rows' })
+  await clock.advance(1_000)
+  expect(ran.some(a => a[0] === 'sh' && a.at(-1) === file)).toBe(true)
+  expect(await active()).toBe(file)
+  await ui.unmount()
+})

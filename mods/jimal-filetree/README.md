@@ -21,6 +21,10 @@ Everything the original does is still here: git status and lines changed, the sh
 - Edits are seen through Edit, Write and NotebookEdit, and through the scan after shell commands, so files changed by scripts count too.
 - **Lines changed outside git**: in a folder that is no git repository (where git's `?`/`M` marks and `+N -N` counts never show), the lines Claude adds and removes with Edit and Write are counted for the session and shown as `+N -N` beside the file. Local only: no model call. Changes made by shell commands are not counted.
 
+## Clicks
+
+A click selects a file (a folder opens or closes); a second click on the selected file clears the selection; a double-click opens it, as before.
+
 ## Install
 
 ```bash
@@ -45,3 +49,7 @@ Changes (0.6.0):
 - Lines changed outside a git repo: counted from Edit and Write, shown as `+N -N`.
 - A refused tool registration no longer stops the tree from starting.
 - Tests: `tests/marks.test.ts`, and two end-to-end tests at the end of `tests/surfaces.test.tsx`; the original tests run against the renamed plugin.
+
+Changes (0.6.1):
+
+- A second click on the selected file clears the selection, after the double-click window, so a double-click still opens it.

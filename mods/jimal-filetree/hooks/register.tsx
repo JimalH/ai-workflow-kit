@@ -1740,15 +1740,28 @@ async function toggle($: EngineInterface, n: FileNode): Promise<void> {
   void watchTree($)
 }
 
+// A click on the file already selected clears the selection (this fork), once a double-click
+// can no longer follow: the wait keeps a double-click on it opening the file, unselected never.
+let unselectLater: Timer | null = null
+
 async function press($: EngineInterface, n: FileNode): Promise<void> {
   const now = await $.clock.now()
   const isDouble = lastPress.key === n.id && now - lastPress.at < DOUBLE_MS
   lastPress = { key: isDouble ? '' : n.id, at: now }
-  if (!isDouble) {
-    await toggle($, n)
+  unselectLater?.cancel()
+  unselectLater = null
+  if (isDouble) {
+    await openNode($, n)
     return
   }
-  await openNode($, n)
+  if (n.kind !== 'dir' && (await get($)).selected === n.id) {
+    unselectLater = $.clock.after(DOUBLE_MS, () => {
+      unselectLater = null
+      void patch($, cur => (cur.selected === n.id ? { selected: '', cursor: '' } : {}))
+    })
+    return
+  }
+  await toggle($, n)
 }
 
 async function openNode($: EngineInterface, n: FileNode): Promise<void> {
