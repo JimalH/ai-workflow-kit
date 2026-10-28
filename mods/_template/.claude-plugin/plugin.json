@@ -1,0 +1,6 @@
+{
+  "name": "mod-template",
+  "version": "0.1.0",
+  "description": "Template mod: copy this folder to mods/<mod-name>/ and rename before use.",
+  "author": { "name": "JimalH", "url": "https://github.com/JimalH" }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "ai-workflow-kit",
+  "owner": { "name": "JimalH", "url": "https://github.com/JimalH" },
+  "metadata": { "description": "JimalH's shared Claude Code mods, installable on any machine." },
+  "plugins": []
+}
