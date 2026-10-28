@@ -14,6 +14,8 @@ export type Flow = {
   phase: Phase
   isFinished: boolean
   tasks: PlannedTask[]
+  /** When a finished flow leaves the band, in ms since the epoch. */
+  hideAt?: number
 }
 
 export type AgentStatus = 'running' | 'done' | 'failed'

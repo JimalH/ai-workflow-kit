@@ -1,6 +1,6 @@
 {
   "name": "jimal-progress",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Fork of savvy-progress: progress bar above the prompt that sizes itself to the space left, plus an agents panel (/agents-info).",
   "author": {
     "name": "JimalH",

@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { AgentRun, Flow, Panel, Phase, PlannedTask } from '../types'
 
@@ -28,6 +28,8 @@ const TIERS: readonly string[] = ['fable', 'heavy', 'careful', 'medium', 'light'
 const MAX_TASKS = 200
 const MAX_AFTER = 20
 const MAX_TITLE = 120
+// A finished flow stays on the band this long, counting down, then leaves by itself.
+const AUTO_HIDE_MS = 30_000
 const ACCENT = '#8f8cf4'
 const DONE = '#5fbf8f'
 
@@ -225,6 +227,13 @@ const label = (f: Flow): string => {
   return `${f.phase === 'review' ? s.review : s.tasks} ${count}`
 }
 
+// Seconds left before a finished flow leaves the band; 0 when none is pending.
+const secondsLeft = (f: Flow, at: number): number =>
+  f.isFinished && f.hideAt !== undefined ? Math.max(0, Math.ceil((f.hideAt - at) / 1000)) : 0
+
+// The bar's pill: the label, with the countdown once the flow is finished.
+const pillText = (f: Flow, left: number): string => (left ? `${label(f)} · ${left}s` : label(f))
+
 const ratio = (f: Flow): number => (f.isFinished ? 1 : f.total ? f.done / f.total : 0)
 
 // Deterministic noise so the dither does not shimmer between redraws.
@@ -284,7 +293,7 @@ const fitText = (s: string, size: number, maxW: number): string => {
   return out + '…'
 }
 
-const rowSvg = (f: Flow, W: number, isWorking: boolean): string => {
+const rowSvg = (f: Flow, W: number, isWorking: boolean, left = 0): string => {
   // The title takes what it needs, up to 40% of the row; the bar takes the rest.
   const title = fitText(f.title, 13, Math.max(60, W * 0.4))
   const BAR_X = Math.round(16 + textWidth(title, 13) + 12)
@@ -323,7 +332,7 @@ const rowSvg = (f: Flow, W: number, isWorking: boolean): string => {
     if (x > fillW + 4) ticks.push(`<rect x="${bx(x, 1.5)}" y="${BAR_H / 2 - 4}" width="1.5" height="8" rx="0.75"/>`)
   }
 
-  const text = label(f)
+  const text = pillText(f, left)
   const pillW = Math.round(18 + text.length * 6.6)
   const pillX = bx(Math.max(0, Math.min(BAR_W - pillW, fillW - pillW)), pillW)
   const percent = `${Math.round(ratio(f) * 100)}%`
@@ -803,6 +812,26 @@ async function autoOpen($: EngineInterface, key: string): Promise<void> {
   void $.ui.open({ id: PANE, title: tr().pane })
 }
 
+// Module scope is fine: a reload drops the old environment's timers, and
+// session.start schedules the pending hide again.
+let hideTimer: Timer | undefined
+
+// Arms the hide of a finished flow (giving one that has no time yet the full
+// AUTO_HIDE_MS); a newer flow, or the dismiss, makes the timer a no-op.
+async function scheduleHide($: EngineInterface): Promise<void> {
+  hideTimer?.cancel()
+  hideTimer = undefined
+  if (!(await read($, flow))?.isFinished) return
+  const at = await $.clock.now()
+  const f = await update($, flow, prev => (prev?.isFinished && prev.hideAt === undefined ? { ...prev, hideAt: at + AUTO_HIDE_MS } : prev))
+  if (!f?.isFinished || f.hideAt === undefined) return
+  const hideAt = f.hideAt
+  await update($, now, () => at)
+  hideTimer = $.clock.after(Math.max(0, hideAt - at), () => {
+    void update($, flow, prev => (prev?.isFinished && prev.hideAt === hideAt ? null : prev))
+  })
+}
+
 export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -862,15 +891,18 @@ export const register: Register = (on, options) => {
       description: 'Show or hide the panel of subagents: running, finished and planned, with model, context, cost and time',
     })
 
-    // Ticks the running agents' clocks; quiet when nothing runs.
+    // Ticks the running agents' clocks and a finished flow's countdown; quiet otherwise.
     $.clock.every(1000, () => {
       void (async () => {
         const list = await read($, agents)
-        if (!list.some(a => a.status === 'running')) return
+        const f = await read($, flow)
+        if (!list.some(a => a.status === 'running') && !f?.isFinished) return
         const at = await $.clock.now()
         await update($, now, () => at)
       })()
     })
+    // A finished flow left from before a reload still leaves on time.
+    await scheduleHide($).catch(() => undefined)
     return started
   })
 
@@ -897,6 +929,9 @@ export const register: Register = (on, options) => {
       await update($, agents, list => list.filter(a => a.status === 'running'))
     }
     const next = await update($, flow, p => merge(p, input))
+    // Each report arms (or, for an unfinished flow, disarms) the hide; a failed
+    // timer must not fail the report, the dismiss still clears the band.
+    await scheduleHide($).catch(() => undefined)
     if (next && input.tasks?.length) await autoOpen($, next.title)
     return { result: `ok: ${label(next ?? blank())}` }
   })
@@ -1228,6 +1263,9 @@ export const register: Register = (on, options) => {
     const list = await read($, agents)
     const crew = list.length + plannedOf(f, list).length
     const isWorking = list.some(a => a.status === 'running')
+    // Only a countdown reads `now` (the per-second tick that redraws it), so an
+    // unfinished band does not redraw every tick; the time itself is the clock's.
+    const left = f.isFinished ? secondsLeft(f, Math.max(await read($, now), await $.clock.now())) : 0
     const crewButton = (
       <Button key="savvy-agents" label={`×${crew}`} plain onPress={() => void togglePane($)} />
     )
@@ -1250,7 +1288,7 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column">
           <Box flexDirection={isRtl() ? 'row-reverse' : 'row'} alignItems="center" gap={1}>
-            <Svg source={rowSvg(f, width, isWorking)} alt={`${f.title}: ${label(f)}, ${percent}`} width={width} height={H} />
+            <Svg source={rowSvg(f, width, isWorking, left)} alt={`${f.title}: ${pillText(f, left)}, ${percent}`} width={width} height={H} />
             {crewButton}
             {dismiss}
           </Box>
@@ -1270,7 +1308,7 @@ export const register: Register = (on, options) => {
             <Text wrap="truncate-end">{f.title}</Text>
           </Box>
           <Text color={f.isFinished ? DONE : ACCENT}>{barText(f, width)}</Text>
-          <Text bold>{label(f)}</Text>
+          <Text bold>{pillText(f, left)}</Text>
           <Text dimColor>{percent}</Text>
           <Text color={CLAY}>▣</Text>
           {crewButton}
