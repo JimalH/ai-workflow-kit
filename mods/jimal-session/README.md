@@ -55,3 +55,7 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 - `/handoff-now` applies its note from a timer once the command has ended (the host refuses a compaction under the command that asks for it); a toast says whether it worked.
 - The note prompt leaves out the handoff skill's saving step: the fork has no tools, and its notes ended with a request to save them by hand.
 - In a resumed conversation before its first message, `/handoff-now` says it needs one message first instead of `nothing-to-fork`.
+
+## Changes (0.3.2)
+
+- In a headless or SDK session (the desktop app runs as one) the engine refuses a mod's compaction; the note is then applied through a `/compact` prompt, which this mod answers with the note.

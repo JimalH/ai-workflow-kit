@@ -192,10 +192,15 @@ const writeNote = async ($: EngineInterface, deadline: number): Promise<{ path: 
 // The note replaces the old context, as a compaction this mod answers itself: no model
 // request, the old messages stay on screen. A refusal is said, never swallowed: the note
 // then stays unapplied (kept for a new conversation) and the band says so.
+// A headless or SDK session (the desktop app is one) refuses $.session.compact: there a
+// compaction runs as a /compact prompt, which this mod's session.compact hook answers.
+const isSdkRefusal = (reason: string) => /headless|SDK/.test(reason)
+
 const applyNote = async ($: EngineInterface, text: string): Promise<{ isApplied: true } | { isApplied: false; reason: string }> => {
+  const instructions = `${COMPACT_MARK}\n${text}`
   let reason = ''
   try {
-    const compacted = await $.session.compact({ instructions: `${COMPACT_MARK}\n${text}` })
+    const compacted = await $.session.compact({ instructions })
     if ('messages' in compacted && compacted.messages) {
       await update($, handoff, prev => ({ ...prev, isApplied: true }))
       return { isApplied: true }
@@ -203,6 +208,20 @@ const applyNote = async ($: EngineInterface, text: string): Promise<{ isApplied:
     reason = 'skip' in compacted && compacted.skip ? compacted.skip : 'the compaction returned nothing'
   } catch (err) {
     reason = String((err as Error)?.message ?? err)
+  }
+  if (isSdkRefusal(reason)) {
+    try {
+      const submitted = await $.prompt.submit({ text: `/compact ${instructions}`, asUser: true })
+      if (submitted.drop === undefined) {
+        // The hook below marks the note applied when it answers this compaction.
+        if ((await read($, handoff)).isApplied) return { isApplied: true }
+        reason = `${reason}; the /compact prompt entered, but the compaction has not answered yet`
+      } else {
+        reason = `${reason}; the /compact prompt was dropped: ${submitted.drop}`
+      }
+    } catch (err) {
+      reason = `${reason}; the /compact prompt failed: ${String((err as Error)?.message ?? err)}`
+    }
   }
   await update($, handoff, prev => ({ ...prev, status: 'unapplied' }))
   $.ui.log(`jimal-session: the handover note was not applied: ${reason}`, { to: 'debug' })
@@ -303,6 +322,7 @@ export const register: Register = on => {
   on('session.compact', async ($, e, next) => {
     if (e.agentId !== undefined || e.instructions?.startsWith(COMPACT_MARK) !== true) return next(e)
     const note = e.instructions.slice(COMPACT_MARK.length).trim()
+    await update($, handoff, prev => ({ ...prev, isApplied: true }))
     const messages: SessionMessage[] = [
       { role: 'user', text: noteMessage(note), toolUses: [] },
       { role: 'assistant', text: 'Understood. I will continue from this handover note.', toolUses: [] },
