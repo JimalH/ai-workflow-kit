@@ -59,3 +59,7 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 ## Changes (0.3.2)
 
 - In a headless or SDK session (the desktop app runs as one) the engine refuses a mod's compaction; the note is then applied through a `/compact` prompt, which this mod answers with the note.
+
+## Changes (0.3.3)
+
+- The fallback runs `/compact` with `$.command.run` (the engine refuses a mod's prompt that starts with `/`).

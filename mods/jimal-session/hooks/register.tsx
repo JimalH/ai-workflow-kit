@@ -193,7 +193,7 @@ const writeNote = async ($: EngineInterface, deadline: number): Promise<{ path: 
 // request, the old messages stay on screen. A refusal is said, never swallowed: the note
 // then stays unapplied (kept for a new conversation) and the band says so.
 // A headless or SDK session (the desktop app is one) refuses $.session.compact: there a
-// compaction runs as a /compact prompt, which this mod's session.compact hook answers.
+// compaction runs as the /compact command, which this mod's session.compact hook answers.
 const isSdkRefusal = (reason: string) => /headless|SDK/.test(reason)
 
 const applyNote = async ($: EngineInterface, text: string): Promise<{ isApplied: true } | { isApplied: false; reason: string }> => {
@@ -211,16 +211,12 @@ const applyNote = async ($: EngineInterface, text: string): Promise<{ isApplied:
   }
   if (isSdkRefusal(reason)) {
     try {
-      const submitted = await $.prompt.submit({ text: `/compact ${instructions}`, asUser: true })
-      if (submitted.drop === undefined) {
-        // The hook below marks the note applied when it answers this compaction.
-        if ((await read($, handoff)).isApplied) return { isApplied: true }
-        reason = `${reason}; the /compact prompt entered, but the compaction has not answered yet`
-      } else {
-        reason = `${reason}; the /compact prompt was dropped: ${submitted.drop}`
-      }
+      const ran = await $.command.run({ command: 'compact', args: instructions })
+      // The hook below marks the note applied when it answers this compaction.
+      if ((await read($, handoff)).isApplied) return { isApplied: true }
+      reason = `${reason}; /compact ran but did not reach this mod's answer${ran.text ? `: ${ran.text}` : ''}`
     } catch (err) {
-      reason = `${reason}; the /compact prompt failed: ${String((err as Error)?.message ?? err)}`
+      reason = `${reason}; /compact failed: ${String((err as Error)?.message ?? err)}`
     }
   }
   await update($, handoff, prev => ({ ...prev, status: 'unapplied' }))
