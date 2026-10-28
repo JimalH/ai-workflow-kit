@@ -75,5 +75,6 @@ When a mod here is based on another author's mod:
 
 | Mod | Description | Origin |
 | --- | --- | --- |
-| [jimal-progress](jimal-progress/) | Progress bar above the prompt that fits the space left and leaves 30 s after it finishes, plus an agents panel | Fork of [savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) @ `c871c15` (MIT) |
-| [jimal-session](jimal-session/) | Band above the prompt: cache countdown, session/week usage left, keep warm, auto-handoff with a handover note (`handoff` skill) | Own; cache countdown idea from [session-band](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/session-band) (MIT) |
+| [jimal-progress](jimal-progress/) | Progress bar above the prompt with each open task and its time left; follows the task list; plus an agents panel | Fork of [savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) @ `c871c15` (MIT) |
+| [jimal-session](jimal-session/) | One line above the prompt: cache countdown, session/week time and usage left, Keep warm and Auto-handoff (`handoff` skill) | Own; cache countdown idea from [session-band](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/session-band) (MIT) |
+| [jimal-mods](jimal-mods/) | `/mods` panel: turn plugins and mods on and off, browse marketplaces and install | Own |

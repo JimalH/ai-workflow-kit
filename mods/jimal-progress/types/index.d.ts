@@ -1,9 +1,17 @@
 export type Phase = 'plan' | 'design' | 'delegate' | 'review' | 'close'
 
+export type TaskStatus = 'pending' | 'in_progress' | 'completed'
+
 export type PlannedTask = {
   title: string
   tier: string
   after: number[]
+  /** The reporter's estimate, in minutes. */
+  estimateMin?: number
+  /** A task list's own status (source `plan`); a `tool` flow reads its runs instead. */
+  status?: TaskStatus
+  startedAt?: number
+  doneAt?: number
 }
 
 export type Flow = {
@@ -16,6 +24,9 @@ export type Flow = {
   tasks: PlannedTask[]
   /** When a finished flow leaves the band, in ms since the epoch. */
   hideAt?: number
+  /** Who reports it: the progress tool (default), or the session's task list followed by the mod. */
+  source?: 'tool' | 'plan'
+  startedAt?: number
 }
 
 export type AgentStatus = 'running' | 'done' | 'failed'
@@ -46,6 +57,10 @@ export type Panel = {
   isCompact: boolean
   isDoneCollapsed: boolean
   autoOpenedFor: string
+  /** The band lists every open task, not just the first few. */
+  isTasksExpanded?: boolean
+  /** The band is folded to one line for the flow that started at this time (its `startedAt`). */
+  collapsedFor?: number
 }
 
 declare module 'claude-code' {

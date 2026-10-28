@@ -30,10 +30,7 @@ const GREEN = '#4caf6e'
 const AMBER = '#e2a94e'
 const RED = '#e0846b'
 const GREY = '#8a8f8c'
-// A switch that is on: its frame and label, and a light tint inside the frame.
-const ON = '#2e9d8f'
-const ON_TINT = '#2e9d8f1f'
-// Each switch's slot, in cells: the label, the frame's two sides and a cell of air each side.
+// Each switch's slot, in cells: its dot, a gap, the label and a little air.
 const KEEP_WARM_W = 'Keep warm'.length + 4
 const AUTO_HANDOFF_W = 'Auto-handoff'.length + 4
 
@@ -45,14 +42,15 @@ const pad = (n: number) => String(n).padStart(2, '0')
 const cacheColor = (left: number | null, isWorking: boolean): string =>
   isWorking || left === null ? GREEN : left <= 0 ? GREY : left <= ALERT_MS ? RED : left <= WARN_MS ? AMBER : GREEN
 
+// `cache warm`, `cache warm 24m` in its last half hour, `cache expired`; a turn keeps it warm.
 const cacheText = (left: number | null, isWorking: boolean): string => {
-  if (isWorking) return '…'
-  if (left === null) return '—'
-  if (left <= 0) return 'expired'
-  // Nothing to watch yet: the hourglass alone says the cache is warm.
-  if (left > SHOW_MS) return ''
+  if (isWorking) return 'cache warm'
+  if (left === null) return 'cache —'
+  if (left <= 0) return 'cache expired'
+  // Nothing to watch yet: the minutes show only in the last half hour.
+  if (left > SHOW_MS) return 'cache warm'
   // Whole minutes only: seconds ticking beside the prompt distract.
-  return `${Math.ceil(left / (60 * 1000))}m`
+  return `cache warm ${Math.ceil(left / (60 * 1000))}m`
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +142,7 @@ const noteMessage = (note: string) =>
 // The last minute: keep warm refreshes the cache, else auto-handoff writes a note.
 
 let isWarming = false
+
 
 const warm = async ($: EngineInterface): Promise<void> => {
   isWarming = true
@@ -288,62 +287,85 @@ export const register: Register = on => {
     const isWarm = await read($, keepWarm)
     const isAuto = await read($, autoHandoff)
     const ho = await read($, handoff)
-    const isWide = e.props.bodyColumns >= 90
     const color = cacheColor(left, isWorking)
 
-    // A switch: on the desktop a framed button, grey frame and dim label while off,
-    // coloured frame, tint and label while on; in the terminal, where a frame costs
-    // two rows, a ○/● mark and a dim or full label. Each sits in a slot of its own
-    // fixed width, kept empty while the switch is hidden, so neither moves.
+    // A switch: a dot, green while on and grey while off, and its name as a plain (frameless)
+    // button, dim while off (the dot sits outside: a coloured mark inside a button is not
+    // drawn). A hidden switch takes no room, so the figures get it; Auto-handoff sits at the
+    // right end and never moves.
     const toggle = (key: string, label: string, width: number, isOn: boolean, isShown: boolean, onPress: () => unknown) =>
-      !isShown ? (
-        <Box key={`${key}-slot`} width={width} flexShrink={0} />
-      ) : e.surface === 'terminal' ? (
-        <Box key={`${key}-slot`} width={width} flexShrink={0}>
-          <Button key={key} label={isOn ? `● ${label}` : `○ ${label}`} plain dimColor={!isOn} onPress={onPress} />
+      isShown ? (
+        <Box key={`${key}-slot`} minWidth={width} flexShrink={0} flexDirection="row" alignItems="center" justifyContent="flex-end">
+          <Text color={isOn ? GREEN : GREY}>●</Text>
+          <Button key={key} label={label} plain dimColor={!isOn} onPress={onPress} />
         </Box>
-      ) : (
-        <Box
-          key={`${key}-frame`}
-          width={width}
-          flexShrink={0}
-          justifyContent="center"
-          borderStyle="round"
-          borderColor={isOn ? ON : GREY}
-          backgroundColor={isOn ? ON_TINT : undefined}
-          paddingX={0}
-          paddingY={0}
-        >
-          <Button key={key} label={label} plain dimColor={!isOn} onPress={onPress}>
-            <Text color={isOn ? ON : undefined} bold={isOn}>{label}</Text>
-          </Button>
-        </Box>
-      )
+      ) : null
 
     const note =
       ho.status === 'writing' ? 'writing note…' : ho.status === 'saved' ? 'note saved' : ho.status === 'failed' ? 'note failed' : ''
 
+    const cache = cacheText(left, isWorking)
+    const sessionText = `${timeLeft(session, at, false)} ${percentLeft(session)}`
+    const weekText = `${timeLeft(week, at, true)} ${percentLeft(week)}`
+
+    // The switches keep the right end, and the room the shown ones leave goes to the figures;
+    // when it is short, the figures give way one at a time: the note, then the week, then the 5-hour window, then the
+    // cache line shrinks to its minutes (in cells: dot, texts, bars and gaps, padding).
+    const switchesW = (isAuto ? 0 : KEEP_WARM_W) + (isWarm ? 0 : AUTO_HANDOFF_W) + (isAuto || isWarm ? 0 : 2)
+    const room = e.props.bodyColumns - (switchesW + 4)
+    const width = (parts: string[]) => parts.reduce((w, p) => w + p.length + 3, 0)
+    const cacheShort = cache.replace(/^cache (warm )?/, '') || cache
+    const plan = [
+      { note: true, week: true, session: true, cache },
+      { note: false, week: true, session: true, cache },
+      { note: false, week: false, session: true, cache },
+      { note: false, week: false, session: false, cache },
+      { note: false, week: false, session: false, cache: cacheShort },
+    ]
+    const shown =
+      plan.find(p =>
+        width([`● ${p.cache}`, ...(p.session ? [sessionText] : []), ...(p.week ? [weekText] : []), ...(p.note && note && !isWarm ? [note] : [])]) <= room,
+      ) ?? plan[plan.length - 1]!
+    const shownNote = shown.note && note && !isWarm ? note : ''
+
+    // One line of plain figures between bars: `● cache warm 24m | 1h 95% · 13h 18%`; past
+    // the estimate, the line is cut at its end rather than move the switches.
+    const figures = (
+      <Box key="figures" flexDirection="row" alignItems="center" columnGap={2} flexShrink={1} minWidth={0} overflow="hidden">
+        <Box flexDirection="row" columnGap={1} flexShrink={0}>
+          <Text color={color}>●</Text>
+          <Text color={color}>{shown.cache}</Text>
+        </Box>
+        {shown.session ? <Text dimColor>|</Text> : null}
+        {/* Session, then week: `1h 95% · 1d 18%`; a percent turns amber or red as it runs low. */}
+        {shown.session ? (
+          <Box flexDirection="row" columnGap={1} flexShrink={0}>
+            <Text dimColor>{timeLeft(session, at, false)}</Text>
+            <Text color={usageColor(session)} dimColor={!usageColor(session)}>{percentLeft(session)}</Text>
+            {shown.week ? <Text dimColor>·</Text> : null}
+            {shown.week ? <Text dimColor>{timeLeft(week, at, true)}</Text> : null}
+            {shown.week ? <Text color={usageColor(week)} dimColor={!usageColor(week)}>{percentLeft(week)}</Text> : null}
+          </Box>
+        ) : null}
+        {shownNote ? <Text dimColor>|</Text> : null}
+        {shownNote ? <Text dimColor wrap="truncate-end">{shownNote}</Text> : null}
+      </Box>
+    )
+    // The two switches exclude each other: while one is on, the other is hidden.
+    const switches = (
+      <Box key="switches" flexDirection="row" alignItems="center" columnGap={2} flexShrink={0}>
+        {toggle('keep-warm', 'Keep warm', KEEP_WARM_W, isWarm, !isAuto, () => update($, keepWarm, v => !v))}
+        {toggle('auto-handoff', 'Auto-handoff', AUTO_HANDOFF_W, isAuto, !isWarm, () => update($, autoHandoff, v => !v))}
+      </Box>
+    )
+
+    // One row always: the figures from the left, the switches at the right end.
     return (
       <Box flexDirection="column">
-        <Box flexDirection="row" alignItems="center" columnGap={2} flexWrap="nowrap" overflow="hidden" paddingX={1}>
-          <Box flexDirection="row" columnGap={1} flexShrink={0}>
-            <Text color={color}>⧗</Text>
-            {isWide ? <Text dimColor>Cache</Text> : null}
-            {cacheText(left, isWorking) ? <Text bold color={color}>{cacheText(left, isWorking)}</Text> : null}
-          </Box>
-          {/* Session, then week: `1h 95% · 1d 18%`. */}
-          <Box flexDirection="row" columnGap={1} flexShrink={0}>
-            <Text bold>{timeLeft(session, at, false)}</Text>
-            <Text color={usageColor(session)}>{percentLeft(session)}</Text>
-            <Text dimColor>·</Text>
-            <Text bold>{timeLeft(week, at, true)}</Text>
-            <Text color={usageColor(week)}>{percentLeft(week)}</Text>
-          </Box>
-          {note && !isWarm ? <Text dimColor wrap="truncate-end">{note}</Text> : null}
+        <Box flexDirection="row" flexWrap="nowrap" alignItems="center" columnGap={2} overflow="hidden" paddingX={1}>
+          {figures}
           <Box flexGrow={1} flexShrink={1} />
-          {/* The two switches exclude each other: while one is on, the other is hidden. */}
-          {toggle('keep-warm', 'Keep warm', KEEP_WARM_W, isWarm, !isAuto, () => update($, keepWarm, v => !v))}
-          {toggle('auto-handoff', 'Auto-handoff', AUTO_HANDOFF_W, isAuto, !isWarm, () => update($, autoHandoff, v => !v))}
+          {switches}
         </Box>
         {below}
       </Box>

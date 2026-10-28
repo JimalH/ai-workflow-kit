@@ -3,6 +3,9 @@
 A Claude Code mod: a progress bar above the prompt and a live panel of subagents. Fork of [savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) by johnnyvizz (MIT).
 
 - **Progress bar**: the flow's title, phase, accepted tasks out of planned, and a `×N` button with the crew size that opens the panel. It appears once something reports progress (`mcp__jimal-progress__progress`, or the savvy-flow skill) or a `savvy-*` worker starts. A finished flow shows `Done · 30s`, counts down and leaves by itself; `✕` dismisses it at any time. On the desktop the bar takes the space the row has left, so the `×N` and `✕` buttons always stay inside it.
+- **Tasks under the bar**: a line with the time left and the flow's total (elapsed + left), then each open task with a half-width bar and its own time left; running first, finished ones hidden, five rows until `+N more` opens the rest. Time left uses the reporter's `estimateMin` scaled by the pace of the finished tasks, else the finished tasks' average (`—` until one finishes); a subagent's own step reports refine its task.
+- **Follows the task list**: with nothing reporting through the tool, the bar follows the session's own task list (the desktop app's plan, the CLI's TodoWrite) and finishes with the turn's wrap-up.
+- **Folds out of the way**: a message sent while a flow runs folds the task rows under the bar into one dim line (`▸ 3 tasks · ~12m left`); the bar stays, and a click opens the rows again. A new flow starts unfolded. Other mods' bands are drawn above this one, so the bar sits right over the prompt.
 - **Agents panel** (`/agents-info` toggles it; `/agents-info open` opens it or brings it forward): running, finished and planned subagents with model, effort, task progress, context, estimated cost and time.
 
 ## Install
@@ -47,3 +50,10 @@ Changes (1.4.0):
 
 - A finished flow counts down in its pill (`Done · 30s`) and leaves the band after 30 seconds; a new report before then keeps the new flow, and a reload keeps the countdown going.
 - Tests: the countdown and a new flow arriving during it.
+
+Changes (1.5.0):
+
+- Tasks under the bar with their own bars and time left; `estimateMin` per task in the progress tool.
+- Follows the session's task list (desktop plan tool, TodoWrite, wrap-up) when nothing reports a flow.
+- Folds the task rows to one line when a message is sent during a flow; other bands drawn above the bar.
+- Tests: following the task list, time left from averages and estimates, five rows and expanding, the wrap-up, folding.

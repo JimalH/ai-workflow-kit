@@ -1,0 +1,13 @@
+{
+  "name": "jimal-mods",
+  "version": "0.1.0",
+  "description": "A panel to turn installed plugins and mods on and off, install from your marketplaces and open them on GitHub (/mods).",
+  "author": {
+    "name": "JimalH",
+    "url": "https://github.com/JimalH"
+  },
+  "types": "./types/index.d.ts",
+  "homepage": "https://github.com/JimalH/ai-workflow-kit/tree/main/mods/jimal-mods",
+  "repository": "https://github.com/JimalH/ai-workflow-kit",
+  "license": "MIT"
+}

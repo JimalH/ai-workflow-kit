@@ -79,19 +79,21 @@ async function texts($: Engine): Promise<string[]> {
   return [...found.map(t => t.text), ...buttons.map(b => String(b.props.label))]
 }
 
-// A switch's frame colour on the desktop: grey while off, coloured while on; null when hidden.
+// A switch's state as drawn on the desktop, by its dot; null when hidden.
 async function frameOf($: Engine, key: string): Promise<unknown> {
   const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
-  const found = await ui.find({ key: `${key}-frame` })
+  const slot = await ui.find({ key: `${key}-slot` })
   await ui.unmount()
-  return found ? found.props.borderColor : null
+  // The dot leads the slot: green on, grey off; a hidden switch draws no slot.
+  const dot = (slot?.children ?? []).find((c): c is { type: string; props: Record<string, unknown> } => typeof c === 'object' && c !== null && (c as { type?: string }).type === 'Text')
+  return slot ? (dot?.props.color === '#4caf6e' ? 'on' : 'off') : null
 }
 
 async function slotWidth($: Engine, key: string): Promise<unknown> {
   const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
   const found = await ui.find({ key: `${key}-slot` })
   await ui.unmount()
-  return found?.props.width
+  return found?.props.minWidth
 }
 
 async function press($: Engine, key: string) {
@@ -102,20 +104,20 @@ async function press($: Engine, key: string) {
 
 test('band: cache countdown changes colour as it runs out', async ($, on) => {
   const { clock } = await session($, on)
-  expect(await texts($)).toContain('—')
+  expect(await texts($)).toContain('cache —')
 
-  // More than half an hour left: the hourglass alone.
+  // More than half an hour left: warm, no minutes.
   await answer($)
-  expect((await texts($)).some(t => /^\d+m$/.test(t))).toBe(false)
+  expect(await texts($)).toContain('cache warm')
 
   await clock.advance(30 * MIN)
-  expect(await texts($)).toContain('30m')
+  expect(await texts($)).toContain('cache warm 30m')
 
   await clock.advance(15 * MIN)
-  expect(await texts($)).toContain('15m')
+  expect(await texts($)).toContain('cache warm 15m')
 
   await clock.advance(16 * MIN)
-  expect(await texts($)).toContain('expired')
+  expect(await texts($)).toContain('cache expired')
 })
 
 test('band: session hours and week days left with the usage left', async ($, on) => {
@@ -132,20 +134,20 @@ test('band: the week shows hours once less than a day is left', async ($, on) =>
   expect(await texts($)).toContain('19h')
 })
 
-test('band: a switch is framed grey while off and coloured while on, and hides the other', async ($, on) => {
+test('band: a switch has a grey dot while off and a green one while on, and hides the other', async ($, on) => {
   await session($, on)
-  expect(await frameOf($, 'keep-warm')).toBe('#8a8f8c')
-  expect(await frameOf($, 'auto-handoff')).toBe('#8a8f8c')
+  expect(await frameOf($, 'keep-warm')).toBe('off')
+  expect(await frameOf($, 'auto-handoff')).toBe('off')
 
   await press($, 'keep-warm')
-  expect(await frameOf($, 'keep-warm')).toBe('#2e9d8f')
+  expect(await frameOf($, 'keep-warm')).toBe('on')
   expect(await frameOf($, 'auto-handoff')).toBeNull()
-  // The hidden switch keeps its slot, so the shown one stays where it was.
-  expect(await slotWidth($, 'auto-handoff')).toBe('Auto-handoff'.length + 4)
+  // The hidden switch takes no room.
+  expect(await slotWidth($, 'auto-handoff')).toBeUndefined()
 
   await press($, 'keep-warm')
   await press($, 'auto-handoff')
-  expect(await frameOf($, 'auto-handoff')).toBe('#2e9d8f')
+  expect(await frameOf($, 'auto-handoff')).toBe('on')
   expect(await frameOf($, 'keep-warm')).toBeNull()
 })
 
@@ -162,9 +164,8 @@ test('keep warm: refreshes the cache 59 minutes after the last answer', async ($
   expect(world.forks).toHaveLength(1)
   // Refreshed: a full hour again (no minutes shown above half an hour), and auto-handoff is hidden.
   const shown = await texts($)
-  expect(shown).not.toContain('expired')
-  expect(shown.some(t => /^\d+m$/.test(t))).toBe(false)
-  expect(await frameOf($, 'keep-warm')).toBe('#2e9d8f')
+  expect(shown).toContain('cache warm')
+  expect(await frameOf($, 'keep-warm')).toBe('on')
   expect(await frameOf($, 'auto-handoff')).toBeNull()
 })
 
@@ -216,4 +217,41 @@ test('compaction: the marked one is answered with the note, any other goes on', 
 
   await compact({ trigger: 'manual', instructions: 'keep the API notes', messages: [{ role: 'user', text: 'old', toolUses: [] }] })
   expect(world.compacts).toEqual(['keep the API notes'])
+})
+
+test('band: a narrow window drops the figures one by one, the switches stay', async ($, on) => {
+  await session($, on)
+  const shownAt = async (bodyColumns: number) => {
+    const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND.props, bodyColumns } as never })
+    const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+    const switches = await ui.find({ key: 'keep-warm' })
+    await ui.unmount()
+    return { texts, hasSwitches: switches !== undefined }
+  }
+  const wide = await shownAt(140)
+  expect(wide.texts).toContain('3h')
+  expect(wide.texts).toContain('4d')
+  expect(wide.hasSwitches).toBe(true)
+
+  const medium = await shownAt(60)
+  expect(medium.texts).toContain('3h')
+  expect(medium.texts).not.toContain('4d')
+  expect(medium.hasSwitches).toBe(true)
+
+  const narrow = await shownAt(40)
+  expect(narrow.texts).not.toContain('3h')
+  expect(narrow.hasSwitches).toBe(true)
+})
+
+test('band: the room a hidden switch frees goes to the figures', async ($, on) => {
+  await session($, on)
+  const texts = async () => {
+    const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND.props, bodyColumns: 60 } as never })
+    const found = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+    await ui.unmount()
+    return found
+  }
+  expect(await texts()).not.toContain('4d')
+  await press($, 'auto-handoff')
+  expect(await texts()).toContain('4d')
 })

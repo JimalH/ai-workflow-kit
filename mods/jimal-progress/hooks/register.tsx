@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { AgentRun, Flow, Panel, Phase, PlannedTask } from '../types'
+import type { AgentRun, Flow, Panel, Phase, PlannedTask, TaskStatus } from '../types'
 
 const flow = atom({ plugin: 'jimal-progress', key: 'flow' } as const, null)
 const agents = atom({ plugin: 'jimal-progress', key: 'agents' } as const, [])
@@ -28,6 +28,7 @@ const TIERS: readonly string[] = ['fable', 'heavy', 'careful', 'medium', 'light'
 const MAX_TASKS = 200
 const MAX_AFTER = 20
 const MAX_TITLE = 120
+const MAX_ESTIMATE_MIN = 24 * 60
 // A finished flow stays on the band this long, counting down, then leaves by itself.
 const AUTO_HIDE_MS = 30_000
 const ACCENT = '#8f8cf4'
@@ -39,7 +40,7 @@ type ProgressInput = {
   done?: number
   phase?: Phase
   finished?: boolean
-  tasks?: { title?: string; tier?: string; after?: number[] }[]
+  tasks?: { title?: string; tier?: string; after?: number[]; estimateMin?: number }[]
 }
 
 // ---------------------------------------------------------------------------
@@ -198,11 +199,14 @@ const cleanTasks = (tasks: ProgressInput['tasks']): PlannedTask[] | undefined =>
       title: (t.title ?? '').trim(),
       tier: tierName(t.tier ?? ''),
       after: (t.after ?? []).filter(n => Number.isInteger(n) && n > 0).slice(0, MAX_AFTER),
+      ...(typeof t.estimateMin === 'number' && t.estimateMin > 0 && t.estimateMin <= MAX_ESTIMATE_MIN
+        ? { estimateMin: t.estimateMin }
+        : {}),
     }))
 
-const merge = (prev: Flow | null, input: ProgressInput): Flow => {
+const merge = (prev: Flow | null, input: ProgressInput, at: number): Flow => {
   // A new title means a new flow: never carry counters over from an earlier one.
-  const base = isNewFlow(prev, input) || !prev ? blank() : { ...blank(), ...prev }
+  const base = isNewFlow(prev, input) || !prev || prev.source === 'plan' ? { ...blank(), startedAt: at } : { ...blank(), ...prev }
   const tasks = cleanTasks(input.tasks) ?? base.tasks
   const total = Math.min(MAX_TASKS, Math.max(0, Math.round(input.total ?? (input.tasks ? tasks.length : base.total))))
   const done = Math.min(total || Infinity, Math.max(0, Math.round(input.done ?? base.done)))
@@ -215,6 +219,7 @@ const merge = (prev: Flow | null, input: ProgressInput): Flow => {
     phase: input.finished ? 'close' : phase,
     isFinished: input.finished === true,
     tasks,
+    source: 'tool',
   }
 }
 
@@ -375,6 +380,105 @@ const barText = (f: Flow, width: number): string => {
 }
 
 // ---------------------------------------------------------------------------
+// Tasks under the bar: each open task with its own short bar and time left.
+
+// The band lists this many open tasks until expanded.
+const TASK_ROWS = 5
+const MIN_MS = 60 * 1000
+
+type TaskView = {
+  n: number
+  title: string
+  status: 'running' | 'pending' | 'done'
+  /** 0..1, or null when nothing says how far it is. */
+  fraction: number | null
+  /** Expected time left, or null when there is nothing to go on yet. */
+  leftMs: number | null
+}
+
+// Time left per task: the reporter's estimate scaled by how the finished tasks
+// compared with theirs, else the finished tasks' average; a running task's own
+// steps, when its subagent reports them, extrapolate from its elapsed time.
+const taskViews = (f: Flow, list: AgentRun[], at: number): TaskView[] => {
+  const runOf = (title: string) => list.filter(a => norm(a.description) === norm(title)).at(-1)
+  const rows = (f.tasks ?? []).map((t, i) => {
+    const run = runOf(t.title)
+    const status: TaskView['status'] =
+      f.isFinished ? 'done'
+      : f.source === 'plan' ? (t.status === 'completed' ? 'done' : t.status === 'in_progress' ? 'running' : 'pending')
+      : run ? (run.status === 'running' ? 'running' : 'done')
+      : 'pending'
+    const startedAt = f.source === 'plan' ? t.startedAt : run?.startedAt
+    const doneAt = f.source === 'plan' ? t.doneAt : run?.endedAt
+    const steps = run?.stepTotal ? Math.min(1, (run.stepDone ?? 0) / run.stepTotal) : null
+    return { n: i + 1, title: t.title, status, startedAt, doneAt, steps, estimateMs: t.estimateMin ? t.estimateMin * MIN_MS : undefined }
+  })
+
+  const timed = rows.filter(r => r.status === 'done' && r.startedAt !== undefined && r.doneAt !== undefined)
+  const took = (r: (typeof rows)[number]) => Math.max(0, (r.doneAt ?? 0) - (r.startedAt ?? 0))
+  const estimated = timed.filter(r => r.estimateMs !== undefined)
+  const pace = estimated.length ? estimated.reduce((s, r) => s + took(r), 0) / estimated.reduce((s, r) => s + (r.estimateMs ?? 0), 0) || 1 : 1
+  const average = timed.length ? timed.reduce((s, r) => s + took(r), 0) / timed.length : undefined
+
+  return rows.map(r => {
+    if (r.status === 'done') return { n: r.n, title: r.title, status: r.status, fraction: 1, leftMs: 0 }
+    const expected = r.estimateMs !== undefined ? r.estimateMs * pace : average
+    if (r.status === 'pending') return { n: r.n, title: r.title, status: r.status, fraction: 0, leftMs: expected ?? null }
+    const elapsed = r.startedAt !== undefined ? Math.max(0, at - r.startedAt) : 0
+    if (r.steps !== null && r.steps > 0) {
+      return { n: r.n, title: r.title, status: r.status, fraction: r.steps, leftMs: (elapsed * (1 - r.steps)) / r.steps }
+    }
+    if (expected === undefined) return { n: r.n, title: r.title, status: r.status, fraction: null, leftMs: null }
+    // Past its expected time a task is shown as nearly done, never as finished.
+    return { n: r.n, title: r.title, status: r.status, fraction: Math.min(0.95, elapsed / expected), leftMs: Math.max(0, expected - elapsed) }
+  })
+}
+
+// `~12m`, `~1h 5m`, `<1m`; `—` when unknown.
+const fmtLeft = (ms: number | null): string => {
+  if (ms === null) return '—'
+  if (ms < MIN_MS) return '<1m'
+  const m = Math.round(ms / MIN_MS)
+  return m < 60 ? `~${m}m` : `~${Math.floor(m / 60)}h ${m % 60}m`
+}
+
+// The summary under the bar: time left of the open tasks, and the flow's total
+// (elapsed plus left); a task without a figure leaves the sum open (`+`).
+const taskSummary = (f: Flow, views: TaskView[], at: number): string => {
+  const open = views.filter(v => v.status !== 'done')
+  if (open.length === 0) return ''
+  const known = open.filter(v => v.leftMs !== null)
+  if (known.length === 0) return `${open.length} open · time left —`
+  const left = known.reduce((s, v) => s + (v.leftMs ?? 0), 0)
+  const more = known.length < open.length ? '+' : ''
+  const total = f.startedAt !== undefined ? ` · total ${fmtLeft(at - f.startedAt + left)}${more}` : ''
+  return `${fmtLeft(left)}${more} left${total}`
+}
+
+// The open tasks to list: running first, then the ones to come, in their order.
+const openTasks = (views: TaskView[]): TaskView[] => [
+  ...views.filter(v => v.status === 'running'),
+  ...views.filter(v => v.status === 'pending'),
+]
+
+// A task's short bar, for the desktop: half the band's width.
+const MINI_H = 8
+const miniBarSvg = (W: number, v: TaskView): string => {
+  const fillW = Math.round(W * (v.fraction ?? 0))
+  const color = v.status === 'running' ? ACCENT : '#b4b4b0'
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${MINI_H}" viewBox="0 0 ${W} ${MINI_H}">
+<style>.k{fill:#e4e4e2}@media (prefers-color-scheme: dark){.k{fill:#2c2c2c}}</style>
+<rect class="k" width="${W}" height="${MINI_H}" rx="${MINI_H / 2}"/>
+${fillW > 0 ? `<rect width="${Math.max(MINI_H, fillW)}" height="${MINI_H}" rx="${MINI_H / 2}" fill="${color}"${v.fraction === null ? ' opacity="0.5"' : ''}/>` : ''}
+</svg>`
+}
+
+const miniBarText = (v: TaskView, width: number): string => {
+  const filled = Math.round(width * (v.fraction ?? 0))
+  return '█'.repeat(filled) + '░'.repeat(Math.max(0, width - filled))
+}
+
+// ---------------------------------------------------------------------------
 // Agents panel: every subagent of the session, plus the tasks the flow planned.
 
 const TIER_COLOR: Record<string, string> = {
@@ -494,7 +598,8 @@ const elapsed = (a: AgentRun, at: number): number => (a.endedAt ?? Math.max(at, 
 type Planned = PlannedTask & { n: number }
 
 const plannedOf = (f: Flow | null, list: AgentRun[]): Planned[] => {
-  if (!f || f.isFinished) return []
+  // A task list's items are the session's own steps, not subagents to come.
+  if (!f || f.isFinished || f.source === 'plan') return []
   const started = new Set(list.map(a => norm(a.description)))
   return (f.tasks ?? []).map((t, i) => ({ ...t, n: i + 1 })).filter(t => !started.has(norm(t.title)))
 }
@@ -832,6 +937,98 @@ async function scheduleHide($: EngineInterface): Promise<void> {
   })
 }
 
+// ---------------------------------------------------------------------------
+// The session's own task list, followed without the model reporting anything:
+// the desktop app's plan tool (whole list, or advance / done / start) and the
+// CLI's TodoWrite (whole list). A flow the progress tool reports wins over it.
+
+const PLAN_TOOL = 'mcp__ccd_turn__update_plan'
+const WRAP_UP_TOOL = 'mcp__ccd_turn__wrap_up'
+const TODO_TOOL = 'TodoWrite'
+
+type PlanItem = { content?: unknown; status?: unknown }
+type PlanInput = { items?: PlanItem[]; todos?: PlanItem[]; scope?: unknown; advance?: unknown; done?: unknown; start?: unknown }
+
+const taskStatus = (v: unknown): TaskStatus => (v === 'completed' ? 'completed' : v === 'in_progress' ? 'in_progress' : 'pending')
+
+const planFlow = (prev: Flow | null, input: PlanInput | 'wrap-up', at: number): Flow | null => {
+  if (prev && !prev.isFinished && prev.source !== 'plan') return prev
+  const isFresh = !prev || prev.isFinished || prev.source !== 'plan' || (input !== 'wrap-up' && input.scope === 'new_task')
+  if (isFresh && (input === 'wrap-up' || !(input.items ?? input.todos))) return prev
+  const before = isFresh || !prev ? [] : prev.tasks
+  let tasks: PlannedTask[] = before.map(t => ({ ...t }))
+
+  const setStatus = (t: PlannedTask, status: TaskStatus) => {
+    if (t.status === status) return
+    t.status = status
+    if (status !== 'pending') t.startedAt ??= at
+    if (status === 'completed') t.doneAt ??= at
+  }
+
+  if (input === 'wrap-up') {
+    for (const t of tasks) setStatus(t, 'completed')
+  } else {
+    const items = input.items ?? input.todos
+    if (items) {
+      // A new list keeps the times of the items it carries over, by title.
+      tasks = items
+        .filter(i => typeof i.content === 'string' && i.content.trim())
+        .slice(0, MAX_TASKS)
+        .map(i => {
+          const title = clip(String(i.content).trim(), MAX_TITLE)
+          const was = before.find(t => t.title === title)
+          const t: PlannedTask = was ? { ...was } : { title, tier: '', after: [] }
+          setStatus(t, taskStatus(i.status))
+          return t
+        })
+    }
+    if (input.advance === true) {
+      const i = tasks.findIndex(t => t.status === 'in_progress')
+      if (i >= 0) setStatus(tasks[i] as PlannedTask, 'completed')
+      const next = tasks.findIndex((t, j) => j > i && t.status === 'pending')
+      if (next >= 0) setStatus(tasks[next] as PlannedTask, 'in_progress')
+    }
+    if (Array.isArray(input.done)) {
+      for (const n of input.done) if (typeof n === 'number' && tasks[n - 1]) setStatus(tasks[n - 1] as PlannedTask, 'completed')
+    }
+    if (typeof input.start === 'number' && tasks[input.start - 1]) setStatus(tasks[input.start - 1] as PlannedTask, 'in_progress')
+  }
+
+  const done = tasks.filter(t => t.status === 'completed').length
+  const isFinished = tasks.length > 0 && done === tasks.length
+  const current = tasks.find(t => t.status === 'in_progress') ?? tasks.find(t => t.status === 'pending')
+  return {
+    ...blank(),
+    title: current?.title ?? prev?.title ?? tr().tasks,
+    total: tasks.length,
+    done,
+    phase: isFinished ? 'close' : 'delegate',
+    isFinished,
+    tasks,
+    source: 'plan',
+    startedAt: isFresh ? at : (prev?.startedAt ?? at),
+  }
+}
+
+// Read after the call went through, so a refused or failed call changes nothing; the
+// call's own result goes back as it was, whatever happens here.
+async function followPlan<R extends { deny?: unknown; isError?: boolean }>(
+  $: EngineInterface,
+  e: PlanInput & { agentId?: string },
+  ran: R,
+  isWrapUp: boolean,
+): Promise<R> {
+  if (e.agentId || ran.deny !== undefined || ran.isError === true) return ran
+  try {
+    const at = await $.clock.now()
+    await update($, flow, prev => planFlow(prev, isWrapUp ? 'wrap-up' : e, at))
+    await scheduleHide($)
+  } catch {
+    // The bar is a view: a list it cannot read leaves it as it was.
+  }
+  return ran
+}
+
 export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -861,6 +1058,7 @@ export const register: Register = (on, options) => {
                 title: { type: 'string', description: 'A few words; reused verbatim as the Agent description.' },
                 tier: { type: 'string', enum: [...TIERS] },
                 after: { type: 'array', items: { type: 'integer' }, description: 'Numbers of the tasks this one waits for.' },
+                estimateMin: { type: 'number', description: 'Your estimate of how long the task takes, in minutes; the band shows the time left from it.' },
               },
               required: ['title', 'tier'],
             },
@@ -891,13 +1089,16 @@ export const register: Register = (on, options) => {
       description: 'Show or hide the panel of subagents: running, finished and planned, with model, context, cost and time',
     })
 
-    // Ticks the running agents' clocks and a finished flow's countdown; quiet otherwise.
+    // Ticks the running agents' clocks and a finished flow's countdown every second, an
+    // open flow's time left every 15 seconds (it shows minutes); quiet otherwise.
     $.clock.every(1000, () => {
       void (async () => {
         const list = await read($, agents)
         const f = await read($, flow)
-        if (!list.some(a => a.status === 'running') && !f?.isFinished) return
         const at = await $.clock.now()
+        const isEverySecond = list.some(a => a.status === 'running') || f?.isFinished === true
+        const isOpen = f !== null && !f.isFinished && f.tasks.length > 0
+        if (!isEverySecond && !(isOpen && at - (await read($, now)) >= 15_000)) return
         await update($, now, () => at)
       })()
     })
@@ -928,7 +1129,8 @@ export const register: Register = (on, options) => {
       // A new flow starts with a clean list; agents still running stay.
       await update($, agents, list => list.filter(a => a.status === 'running'))
     }
-    const next = await update($, flow, p => merge(p, input))
+    const reportedAt = await $.clock.now().catch(() => 0)
+    const next = await update($, flow, p => merge(p, input, reportedAt))
     // Each report arms (or, for an unfinished flow, disarms) the hide; a failed
     // timer must not fail the report, the dismiss still clears the band.
     await scheduleHide($).catch(() => undefined)
@@ -953,6 +1155,24 @@ export const register: Register = (on, options) => {
     )
     return { result: matched ? 'ok' : `ignored: no panel row for agent ${agentId}` }
   })
+
+  // A message the person sends while a flow is open folds the band's tasks to one line,
+  // out of the way of what comes next; a click opens them again, a new flow starts unfolded.
+  on('prompt.submit', async ($, e, next) => {
+    if (!e.command && !e.isMeta) {
+      const f = await read($, flow)
+      if (f && !f.isFinished && f.startedAt !== undefined) {
+        const startedAt = f.startedAt
+        await update($, panel, prev => ({ ...prev, collapsedFor: startedAt }))
+      }
+    }
+    return next(e)
+  })
+
+  // The session's own task list drives the flow when nothing reports one.
+  on('tool.call', { tool: PLAN_TOOL }, async ($, e, next) => followPlan($, e as unknown as PlanInput, await next(e), false))
+  on('tool.call', { tool: TODO_TOOL }, async ($, e, next) => followPlan($, e as unknown as PlanInput, await next(e), false))
+  on('tool.call', { tool: WRAP_UP_TOOL }, async ($, e, next) => followPlan($, e as unknown as PlanInput, await next(e), true))
 
   // Safety net: worker launches move the faint layer even if the orchestrator forgets to report.
   on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
@@ -1253,8 +1473,9 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const f = await read($, flow)
     if (f === null || e.props.hasSurvey) return next(e)
-    // Draw this row with the other mods' bands beneath it. Claude Code's own placeholder ({ type: 'engine' }) is
-    // never nested: the desktop drops a band that nests it.
+    // Draw the other mods' bands above this row, so the bar and its tasks sit right over
+    // the prompt. Claude Code's own placeholder ({ type: 'engine' }) is never nested: the
+    // desktop drops a band that nests it.
     const drawn = await Promise.resolve(next(e)).catch(() => null)
     const below = drawn && typeof drawn === 'object' && (drawn as { type?: string }).type !== 'engine' ? drawn : null
 
@@ -1263,9 +1484,45 @@ export const register: Register = (on, options) => {
     const list = await read($, agents)
     const crew = list.length + plannedOf(f, list).length
     const isWorking = list.some(a => a.status === 'running')
-    // Only a countdown reads `now` (the per-second tick that redraws it), so an
-    // unfinished band does not redraw every tick; the time itself is the clock's.
-    const left = f.isFinished ? secondsLeft(f, Math.max(await read($, now), await $.clock.now())) : 0
+    // Only a countdown or open tasks read `now` (the tick that redraws them), so a
+    // band with neither does not redraw every tick; the time itself is the clock's.
+    const hasTasks = !f.isFinished && f.tasks.length > 0
+    const at = f.isFinished || hasTasks ? Math.max(await read($, now), await $.clock.now().catch(() => 0)) : 0
+    const left = f.isFinished ? secondsLeft(f, at) : 0
+    const views = hasTasks ? taskViews(f, list, at) : []
+    const open = openTasks(views)
+    const p = await read($, panel)
+    const isExpanded = p.isTasksExpanded === true
+    const shown = isExpanded ? open : open.slice(0, TASK_ROWS)
+    const summary = hasTasks ? taskSummary(f, views, at) : ''
+    const more =
+      open.length > TASK_ROWS ? (
+        <Button
+          key="tasks-more"
+          label={isExpanded ? 'Show less' : `+${open.length - shown.length} more`}
+          plain
+          dimColor
+          onPress={() => update($, panel, prev => ({ ...prev, isTasksExpanded: !prev.isTasksExpanded }))}
+        />
+      ) : null
+    // Folded (a message came in while the flow ran): the bar stays, its tasks fold into
+    // one dim line that opens them again.
+    const isFolded = hasTasks && f.startedAt !== undefined && p.collapsedFor === f.startedAt
+    const unfold = (
+      <Button
+        key="band-expand"
+        label={`▸ ${open.length} ${open.length === 1 ? 'task' : 'tasks'}${summary ? ` · ${summary}` : ''}`}
+        plain
+        dimColor
+        onPress={() => update($, panel, prev => ({ ...prev, collapsedFor: undefined }))}
+      />
+    )
+    // A task's mark and name: the running one in the accent, the ones to come dim.
+    const mark = (v: TaskView) => (
+      <Text color={v.status === 'running' ? ACCENT : undefined} dimColor={v.status !== 'running'}>
+        {v.status === 'running' ? '●' : '○'}
+      </Text>
+    )
     const crewButton = (
       <Button key="savvy-agents" label={`×${crew}`} plain onPress={() => void togglePane($)} />
     )
@@ -1285,14 +1542,37 @@ export const register: Register = (on, options) => {
       const { Svg } = ui
       // No floor above the slot: a row wider than it would wrap.
       const width = bandWidth(e.props.bodyColumns || 100, crew)
+      // Under the bar: the name in about a third of the row, a bar half as wide as the band's.
+      const titleCells = Math.max(10, Math.floor((e.props.bodyColumns || 100) * 0.3))
+      const miniW = Math.round(width / 2)
       return (
         <Box flexDirection="column">
+          {below}
           <Box flexDirection={isRtl() ? 'row-reverse' : 'row'} alignItems="center" gap={1}>
             <Svg source={rowSvg(f, width, isWorking, left)} alt={`${f.title}: ${pillText(f, left)}, ${percent}`} width={width} height={H} />
             {crewButton}
             {dismiss}
           </Box>
-          {below}
+          {isFolded ? (
+            <Box key="tasks" flexDirection="row" paddingLeft={2}>
+              {unfold}
+            </Box>
+          ) : hasTasks ? (
+            <Box key="tasks" flexDirection="column" paddingLeft={2}>
+              {summary ? <Text dimColor>{summary}</Text> : null}
+              {shown.map(v => (
+                <Box key={`task-${v.n}`} flexDirection="row" alignItems="center" columnGap={1} flexWrap="nowrap" overflow="hidden">
+                  {mark(v)}
+                  <Box width={titleCells} flexShrink={0}>
+                    <Text wrap="truncate-end" dimColor={v.status !== 'running'}>{v.title}</Text>
+                  </Box>
+                  <Svg source={miniBarSvg(miniW, v)} alt={`${v.title}: ${Math.round((v.fraction ?? 0) * 100)}%`} width={miniW} height={MINI_H} />
+                  <Text dimColor>{fmtLeft(v.leftMs)}</Text>
+                </Box>
+              ))}
+              {more}
+            </Box>
+          ) : null}
         </Box>
       )
     }
@@ -1302,6 +1582,7 @@ export const register: Register = (on, options) => {
     const width = Math.max(6, Math.min(40, cols - titleW - 32))
     return (
       <Box flexDirection="column">
+        {below}
         <Box flexDirection="row" gap={2}>
           <Box width={titleW} flexShrink={0}>
             <Text color={f.isFinished ? DONE : ACCENT}>● </Text>
@@ -1314,7 +1595,28 @@ export const register: Register = (on, options) => {
           {crewButton}
           {dismiss}
         </Box>
-        {below}
+        {isFolded ? (
+          <Box key="tasks" flexDirection="row" paddingLeft={2}>
+            {unfold}
+          </Box>
+        ) : hasTasks ? (
+          <Box key="tasks" flexDirection="column" paddingLeft={2}>
+            {summary ? <Text dimColor>{summary}</Text> : null}
+            {shown.map(v => (
+              <Box key={`task-${v.n}`} flexDirection="row" gap={1}>
+                {mark(v)}
+                <Box width={Math.max(10, Math.floor(cols * 0.3))} flexShrink={0}>
+                  <Text wrap="truncate-end" dimColor={v.status !== 'running'}>{v.title}</Text>
+                </Box>
+                <Text color={v.status === 'running' ? ACCENT : undefined} dimColor={v.status !== 'running'}>
+                  {miniBarText(v, Math.max(6, Math.floor(cols / 4)))}
+                </Text>
+                <Text dimColor>{fmtLeft(v.leftMs)}</Text>
+              </Box>
+            ))}
+            {more}
+          </Box>
+        ) : null}
       </Box>
     )
   })

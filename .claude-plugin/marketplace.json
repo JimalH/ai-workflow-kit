@@ -11,14 +11,21 @@
     {
       "name": "jimal-progress",
       "source": "./mods/jimal-progress",
-      "description": "Mod: progress bar above the prompt that fits the space left and leaves 30 s after it finishes, plus a live agents panel (/agents-info). Fork of savvy-progress.",
-      "version": "1.4.0",
+      "description": "Mod: progress bar above the prompt with each open task, its own bar and time left; follows the session task list, folds while you type, leaves 30 s after it finishes; plus an agents panel (/agents-info). Fork of savvy-progress.",
+      "version": "1.5.0",
       "category": "mod"
     },
     {
       "name": "jimal-session",
       "source": "./mods/jimal-session",
-      "description": "Mod: band above the prompt with the prompt cache countdown, session and weekly usage left, a keep-warm switch and auto-handoff with a handover note.",
+      "description": "Mod: one line above the prompt with the prompt cache countdown and session/week time and usage left, plus Keep warm and Auto-handoff (handover note) switches.",
+      "version": "0.2.0",
+      "category": "mod"
+    },
+    {
+      "name": "jimal-mods",
+      "source": "./mods/jimal-mods",
+      "description": "Mod: /mods panel to turn installed plugins and mods on and off, browse your marketplaces and install from them.",
       "version": "0.1.0",
       "category": "mod"
     }
