@@ -78,3 +78,11 @@ When a mod here is based on another author's mod:
 | [jimal-progress](jimal-progress/) | Progress bar above the prompt with each open task and its time left; follows the task list; plus an agents panel | Fork of [savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) @ `c871c15` (MIT) |
 | [jimal-session](jimal-session/) | One line above the prompt: cache countdown, session/week time and usage left, Keep warm and Auto-handoff (`handoff` skill) | Own; cache countdown idea from [session-band](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/session-band) (MIT) |
 | [jimal-mods](jimal-mods/) | `/mods` panel: turn plugins and mods on and off, browse marketplaces and install | Own |
+
+## External plugins
+
+Listed in the marketplace from their own repositories, pinned to a reviewed commit (no code copied here). To take a newer version: review its changes, then update the `sha` and `version` in `.claude-plugin/marketplace.json`.
+
+| Plugin | Description | Source | Reviewed |
+| --- | --- | --- | --- |
+| filetree | IDE-style file tree pane: git status, lines changed, Claude's reads/writes/git activity (`/filetree`) | [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) (MIT) | `6bc23f6` (v0.5.2), 2026-10-28: no network or model calls, no settings writes; opening a file runs it with its default app; the selected file's path is added to each prompt |

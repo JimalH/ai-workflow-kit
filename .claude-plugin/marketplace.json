@@ -28,6 +28,17 @@
       "description": "Mod: /mods panel to turn installed plugins and mods on and off, browse your marketplaces and install from them.",
       "version": "0.1.0",
       "category": "mod"
+    },
+    {
+      "name": "filetree",
+      "source": {
+        "source": "github",
+        "repo": "data-goblin/claude-code-filetree",
+        "sha": "6bc23f6d824242bea16e53e097051bfa8bcd34a2"
+      },
+      "description": "Mod (external, by Kurt Buhler, MIT): IDE-style file tree pane with git status, lines changed, and Claude's reads/writes/git activity shimmering on files (/filetree). Pinned to the reviewed commit 6bc23f6 (v0.5.2).",
+      "version": "0.5.2",
+      "category": "mod"
     }
   ]
 }
