@@ -33,7 +33,7 @@
       "name": "jimal-filetree",
       "source": "./mods/jimal-filetree",
       "description": "Mod: IDE-style file tree (/filetree) that also marks the files Claude plans to change, is changing and has changed, opens their folders, shows a legend, and counts lines changed outside git. Fork of filetree.",
-      "version": "0.6.1",
+      "version": "0.6.2",
       "category": "mod"
     },
     {

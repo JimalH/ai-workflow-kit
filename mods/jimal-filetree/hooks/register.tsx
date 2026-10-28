@@ -1892,19 +1892,34 @@ async function marksOf($: EngineInterface): Promise<Marks> {
   return (await $.state.get(MARKS)).value ?? emptyMarks()
 }
 
-// Writes the marks, redraws the tree, and arms the clear of held marks.
+// Redraws the tree each second while marks are held, so the legend's countdown moves.
+let marksTick: Timer | null = null
+
+// Writes the marks, redraws the tree, and arms the clear of held marks (and the countdown).
+// The timers live in this module, so a reload, which keeps the marks, re-arms them through
+// session.start (armMarks).
 async function setMarks($: EngineInterface, fn: (m: Marks) => Marks): Promise<void> {
   const next = await update($, MARKS, cur => fn(cur ?? emptyMarks()))
   await $.ui.invalidate('ui.render')
+  await armMarks($, next)
+}
+
+async function armMarks($: EngineInterface, m: Marks): Promise<void> {
   marksTimer?.cancel()
   marksTimer = null
-  if (next.clearAt === null) return
-  const clearAt = next.clearAt
+  marksTick?.cancel()
+  marksTick = null
+  if (m.clearAt === null) return
+  const clearAt = m.clearAt
   const at = await $.clock.now()
   marksTimer = $.clock.after(Math.max(0, clearAt - at), () => {
     void setMarks($, cur => (cur.clearAt === clearAt ? emptyMarks() : cur))
   })
+  marksTick = $.clock.every(1_000, () => void $.ui.invalidate('ui.render'))
 }
+
+// Held marks past their time count as cleared, whether or not a timer has fired yet.
+const liveMarks = (m: Marks, at: number): Marks => (m.clearAt !== null && m.clearAt <= at ? emptyMarks() : m)
 
 // Opens every folder on the way to the paths, listing each, without moving the cursor.
 async function openFolders($: EngineInterface, paths: string[]): Promise<void> {
@@ -2012,6 +2027,8 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     cached ??= { ...emptyTree(''), ...(await $.state.get(TREE)).value }
     await $.command.register({ name: 'filetree', description: 'Show or hide the file tree; args: [path | open] (no path = cwd, open = never hide)' })
+    // Held marks outlive a reload, their timers do not: arm them again (or clear them, late).
+    await marksOf($).then(m => armMarks($, m)).catch(() => undefined)
     // The plan tool is this fork's extra: a host that refuses it still gets the tree.
     await $.tool.register({
       name: 'plan_files',
@@ -2423,7 +2440,7 @@ export const register: Register = (on, options) => {
     }
     const now = await $.clock.now()
     // This fork's task marks: each marked file's status, each folder's most advanced one.
-    const marks = await marksOf($)
+    const marks = liveMarks(await marksOf($), now)
     const folderMarked = folderMarks(marks, p => ancestorsOf(p, t.root))
     const legendShown = Object.keys(marks.files).length > 0
     // Outside a git repo, the lines Claude changed this session stand in for git's counts.

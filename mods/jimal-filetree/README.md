@@ -53,3 +53,7 @@ Changes (0.6.0):
 Changes (0.6.1):
 
 - A second click on the selected file clears the selection, after the double-click window, so a double-click still opens it.
+
+Changes (0.6.2):
+
+- Held marks clear on time after a plugin reload (the timers are armed again at start, and marks past their time are not drawn); the legend's countdown moves each second.

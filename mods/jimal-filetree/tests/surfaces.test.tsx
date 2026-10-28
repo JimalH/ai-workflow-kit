@@ -2780,3 +2780,27 @@ test('click: a second click on the selected file clears the selection; a double-
   expect(await active()).toBe(file)
   await ui.unmount()
 })
+
+test('task marks: held marks clear on time across a reload, and the countdown moves', { timeoutMs: 20_000 }, async ($, on) => {
+  const root = '/home/k/proj'
+  const w: World = { os: 'linux', env: { HOME: '/home/k' }, cwd: root, top: '', status: '', numstat: '', dirs: { [root]: [['a.ts', 'file']] } }
+  const clock = world(on, w, [])
+  await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const a = `${root}/a.ts`
+  await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [{ content: 'Change a.ts', status: 'in_progress' }] } as never)
+  await $.tool.call({ tool: 'Edit', file_path: a, old_string: 'a', new_string: 'b' })
+  await $.tool.call({ tool: 'mcp__ccd_turn__wrap_up', recap: 'done' } as never)
+  await clock.advance(10_000)
+  const ui = await $.ui.mount({ plugin: 'jimal-filetree', surface: 'terminal', component: 'Pane', requestId: 'jimal-filetree', props: paneProps(60) })
+  expect(await texts(ui)).toContain('clears in 20s')
+
+  // A reload runs session.start again with the marks kept: the clear is armed again.
+  await $.session.start({ cwd: root, surface: 'terminal', isInteractive: true })
+  await clock.advance(5_000)
+  expect(await texts(ui)).toContain('clears in 15s')
+  await clock.advance(16_000)
+  expect(await texts(ui)).not.toContain('● planned')
+  expect(treeRows(await ui.drawn()).rows.find(r => r.id === a)?.right.map(s => s.t).join('')).not.toContain('●')
+  await ui.unmount()
+})
