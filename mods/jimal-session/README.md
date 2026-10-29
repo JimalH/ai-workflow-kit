@@ -135,3 +135,7 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 - Shape prompt per prompt: end it in `++` (dropped) to shape it with the switch off. After prompt-enhancer.
 - Keep warm turns itself off after 3 hours, or when a ping finds the cache cold. After cache-tax.
 - Hotkeys on every band button.
+
+## Changes (0.6.1)
+
+- The cache dot on the desktop is an SVG circle of the size and place the progress bar (jimal-progress) draws its own (4 px radius at x=5, the text from x=16), and the row has no left padding, so the two line up; the terminal keeps the glyph.

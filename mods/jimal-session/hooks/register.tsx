@@ -797,7 +797,8 @@ export const register: Register = on => {
     const drawn = await Promise.resolve(next(e)).catch(() => null)
     const below = drawn && typeof drawn === 'object' && (drawn as { type?: string }).type !== 'engine' ? drawn : null
 
-    const { Box, Text, Button, Client } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Text, Button, Client } = ui
     const at = Math.max(await read($, now), await $.clock.now())
     const deadline = await read($, expiresAt)
     const left = deadline === null ? null : deadline - at
@@ -870,10 +871,19 @@ export const register: Register = on => {
     // past the estimate, the line is cut at its end rather than move the buttons.
     const figures = (
       <Box key="figures" flexDirection="row" alignItems="center" columnGap={2} flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
-        <Box flexDirection="row" columnGap={1} flexShrink={0}>
-          <Text color={color}>●</Text>
-          <Text color={color}>{shown.cache}</Text>
-        </Box>
+        {/* The dot as the progress bar draws its own: a 4 px circle at x=5, the text from x=16;
+            the terminal, with no Svg, keeps the glyph. */}
+        {e.surface !== 'terminal' && 'Svg' in ui ? (
+          <Box flexDirection="row" alignItems="center" flexShrink={0}>
+            <ui.Svg source={`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="14" viewBox="0 0 16 14"><circle cx="5" cy="7" r="4" fill="${color}"/></svg>`} alt="cache" width={16} height={14} />
+            <Text color={color}>{shown.cache}</Text>
+          </Box>
+        ) : (
+          <Box flexDirection="row" columnGap={1} flexShrink={0}>
+            <Text color={color}>●</Text>
+            <Text color={color}>{shown.cache}</Text>
+          </Box>
+        )}
         {showSession || showWeek ? <Text dimColor>|</Text> : null}
         {/* Session, then week: `1h 95% · 1d 18%`; a percent turns amber or red as it runs low. */}
         {showSession || showWeek ? (
@@ -1005,7 +1015,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         {ask}
-        <Box flexDirection="row" flexWrap="nowrap" alignItems="center" columnGap={2} overflow="hidden" paddingX={1}>
+        <Box flexDirection="row" flexWrap="nowrap" alignItems="center" columnGap={2} overflow="hidden" paddingRight={1}>
           {figures}
           {buttons}
         </Box>

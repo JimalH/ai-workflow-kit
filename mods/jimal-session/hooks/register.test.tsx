@@ -569,7 +569,8 @@ test('shape prompt: a prompt ending in ++ is shaped with the switch off, and the
   expect(world.completions[0]?.prompt).toBe('make the page faster, it is slow')
 })
 
-test('keep warm: turns itself off after its window, and when a ping finds the cache cold', async ($, on) => {
+// Three hours of ticks: longer than the default budget.
+test('keep warm: turns itself off after its window, and when a ping finds the cache cold', { timeoutMs: 20000 }, async ($, on) => {
   const { clock, world } = await session($, on)
   await answer($)
   await press($, 'keep-warm')
