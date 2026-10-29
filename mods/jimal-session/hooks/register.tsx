@@ -57,6 +57,8 @@ const MIN_MIDDLE_W = 8
 const BOX_W = 30
 // The cells a native On/Off button is given in a Details row: wider than its label, as the desktop draws it.
 const BUTTON_W = 8
+// A Details row, in cells: a native button is taller than one text row.
+const ROW_H = 2
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -398,6 +400,7 @@ const SHAPE_SYSTEM = [
   'You restructure a prompt written for an AI coding assistant so it is clear, ordered and complete.',
   'Keep every requirement, fact, file name, piece of code and constraint the writer gave; add nothing they did not say; do not answer the prompt.',
   'Correct spelling and grammar as you go.',
+  'If the text is not a task (a greeting, an aside, "wait", "let me look", a yes or no, a question for the assistant), reply with the text exactly as given, unchanged; never explain, apologise or ask for more.',
   'Write in the language of the original; for a Chinese prompt use the headings 目标 / 背景 / 约束 / 产出 / 完成标准.',
   'Reply with the restructured prompt only, no preamble, in this shape, leaving out a section with nothing in it:',
   '',
@@ -517,11 +520,18 @@ const proofread = async ($: EngineInterface, text: string): Promise<Segment[] | 
     return sameWords(fixed, text) ? null : diffWords(text.trim(), fixed)
   })
 
-// The restructured prompt, or null when the call failed.
+// A shaped prompt opens with one of the headings asked for.
+const isShaped = (text: string) => /^\s*(\*\*|#+\s*)?(Goal|目标)?/u.test(text) || /^\s*(\*\*|#+\s*)?目标/u.test(text)
+
+// The restructured prompt, or null when the call failed or the text was no task.
 const shapeText = async ($: EngineInterface, text: string): Promise<string | null> =>
   counted($, isChinese(text) ? '◷ Shape prompt · 整理中…' : '◷ Shape prompt · shaping…', async () => {
     const r = await $.model.complete({ model: SMALL_MODEL, system: SHAPE_SYSTEM, prompt: text, maxTokens: 2048 })
-    if (r.isAnswered && r.text.trim()) return r.text.trim()
+    if (r.isAnswered && r.text.trim()) {
+      const shaped = r.text.trim()
+      // Not shaped (the text given back, or an explanation instead): the prompt goes as typed.
+      return sameWords(shaped, text) || !isShaped(shaped) ? null : shaped
+    }
     $.ui.toast(isChinese(text) ? `整理失败：${reasonOf(r)}，已按原文发出。` : `Shape prompt: ${reasonOf(r)}; the prompt went as typed.`)
     return null
   })
@@ -785,15 +795,15 @@ export const register: Register = on => {
     // light over the working line at its own pace, with no redraw of the band. One row, so
     // a narrow window never wraps it.
     const middleBox = showMiddle ? (
-      <Box key="middle-slot" flexDirection="row" alignItems="center" flexShrink={0} width={middleW} height={1} overflow="hidden">
-        <Client key="middle" module="./middle.tsx" props={{ list: listText, working, width: middleW }} width={middleW} height={1} />
+      <Box key="middle-slot" flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} minWidth={MIN_MIDDLE_W} height={1} overflow="hidden">
+        <Client key="middle" module="./middle.tsx" props={{ list: listText, working, width: 0 }} width="100%" height={1} />
       </Box>
     ) : null
 
     // One line of plain figures between bars: `● cache warm 24m | 1h 95% · 13h 18% | ● Auto-handoff`;
     // past the estimate, the line is cut at its end rather than move the buttons.
     const figures = (
-      <Box key="figures" flexDirection="row" alignItems="center" columnGap={2} flexShrink={1} minWidth={0} overflow="hidden">
+      <Box key="figures" flexDirection="row" alignItems="center" columnGap={2} flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
         <Box flexDirection="row" columnGap={1} flexShrink={0}>
           <Text color={color}>●</Text>
           <Text color={color}>{shown.cache}</Text>
@@ -833,7 +843,7 @@ export const register: Register = on => {
       await $.store.set(PROMPT_STORE_KEY, value).catch(() => undefined)
     }
     const row = (key: string, label: string, isOn: boolean, onPress: () => unknown, opts: { isSub?: boolean; isInert?: boolean } = {}) => (
-      <Box key={`${key}-row`} flexDirection="row" alignItems="center" justifyContent="space-between" columnGap={3} paddingLeft={opts.isSub ? 2 : 0}>
+      <Box key={`${key}-row`} flexDirection="row" alignItems="center" justifyContent="space-between" columnGap={3} paddingLeft={opts.isSub ? 2 : 0} height={ROW_H}>
         <Text dimColor={!isOn || opts.isInert}>{label}</Text>
         <Box width={BUTTON_W} flexShrink={0} flexDirection="row" justifyContent="flex-end">
           <Button key={key} label={isOn ? 'On' : 'Off'} variant={isOn && !opts.isInert ? 'primary' : 'secondary'} dimColor={opts.isInert} onPress={() => (opts.isInert ? undefined : void onPress())} />
@@ -841,7 +851,7 @@ export const register: Register = on => {
       </Box>
     )
     const box = (key: string, title: string, rows: unknown[]) => (
-      <Box key={`${key}-box`} flexDirection="column" borderStyle="round" borderColor={GREY} borderDimColor paddingX={1} minWidth={BOX_W} height={rows.length + 3} flexShrink={0}>
+      <Box key={`${key}-box`} flexDirection="column" borderStyle="round" borderColor={GREY} borderDimColor paddingX={1} minWidth={BOX_W} height={rows.length * ROW_H + 3} flexShrink={0}>
         <Text dimColor>{title}</Text>
         {rows}
       </Box>

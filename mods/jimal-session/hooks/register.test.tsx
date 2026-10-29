@@ -321,7 +321,8 @@ test('band: the middle module gets the switches that are on, and the working lin
   const idle = await middleOf($)
   expect(idle?.list).toBe('● Auto-handoff  ● Fix English  ● In reply  ● In pane')
   expect(idle?.working).toBe('')
-  expect(idle?.width).toBeGreaterThanOrEqual(8)
+  // The module measures its own columns (width 0): the slot grows into the row's spare room.
+  expect(idle?.width).toBe(0)
 
   // While Fix English works, its own line stands in the middle, counted.
   const pending = $.prompt.submit({ text: 'please fix teh header of the page' } as never)
@@ -501,4 +502,14 @@ test('prompt features: a command passes untouched, and a loaded handover note is
   const { world } = await session($, on, { reply: 'Goal: x', store: { prompt: { ...PROMPT_ON, shapePrompt: true } }, files: { [`${dir}/20261027-100000-ffffffff.md`]: '## Goal\nShip it.' } })
   await $.prompt.submit({ text: '/compact', command: { name: 'compact' } } as never)
   expect(world.completions).toHaveLength(0)
+})
+
+test('shape prompt: an aside the model gives back unchanged, or answers with an explanation, goes as typed', async ($, on) => {
+  const { world } = await session($, on, { reply: p => (p === '我看看，等等' ? '这条消息没有任务，无法整理。' : p), store: { prompt: { ...PROMPT_ON, shapePrompt: true } } })
+  const aside = await submit($, '我看看，等等')
+  expect(aside.text).toBe('我看看，等等')
+  expect(aside.context).toBeUndefined()
+  const same = await submit($, 'make the page faster, it is slow')
+  expect(same.text).toBe('make the page faster, it is slow')
+  expect(world.toasts).toHaveLength(0)
 })

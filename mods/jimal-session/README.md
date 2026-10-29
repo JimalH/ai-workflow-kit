@@ -107,3 +107,9 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 
 - The middle of the row is a surface module of its own (`hooks/middle.tsx`): the list of switches on slides one cell every 350 ms when it does not fit, and the working line has a band of light sweeping over it (90 ms a frame), with no redraw of the band. It is one row high, so a narrow window no longer wraps it and makes the row jump.
 - A Details box has a fixed height from its rows (title, rows, border).
+
+## Changes (0.5.4)
+
+- A Details row is two cells high: a native On/Off button is taller than a text row, and rows of one cell overlapped each other.
+- The middle of the row takes the room left between the figures and the buttons as the surface measures it, instead of a width computed from `bodyColumns`, which the desktop reports smaller than the row is.
+- Shape prompt leaves an aside alone: the small model is told to give a non-task back unchanged, and a reply that is not shaped (no Goal / 目标 heading, or an explanation) sends the prompt as typed.
