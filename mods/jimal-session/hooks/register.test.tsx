@@ -22,7 +22,7 @@ type World = {
 async function session(
   $: Engine,
   on: On,
-  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; reply?: string | ((prompt: string) => string); fail?: boolean; delayMs?: number } = {},
+  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; reply?: string | ((prompt: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean } = {},
 ) {
   const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store }, completions: [], opens: [] }
   const clock = mock.clock(on, { now: START })
@@ -52,7 +52,7 @@ async function session(
   on('model.fork', (_$, e) => {
     world.forks.push((e as { prompt: string }).prompt)
     if (opts.forkReason) return { value: { isAnswered: false, reason: opts.forkReason } } as never
-    return { value: { isAnswered: true, text: opts.fork ?? 'ok', usage: null } } as never
+    return { value: { isAnswered: true, text: opts.fork ?? 'ok', usage: { input_tokens: 10, output_tokens: 2, cache_read_input_tokens: opts.coldFork ? 0 : 50000, cache_creation_input_tokens: 0 } } } as never
   })
   on('fs.write', (_$, e) => {
     const { path, text } = e as { path: string; text: string }
@@ -97,6 +97,7 @@ async function session(
     const { text, context } = e as { text: string; context?: readonly string[] }
     return (context ? { text, context } : { text }) as never
   })
+  on('prompt.change', (_$, e) => ({ text: (e as { text: string }).text }) as never)
   on('ui.toast', (_$, e) => {
     world.toasts.push(String((e as { text: string }).text))
     return { value: undefined } as never
@@ -135,6 +136,21 @@ async function middleOf($: Engine): Promise<{ list: string; working: string; wid
   await ui.unmount()
   return found ? (found.props.props as { list: string; working: string; width: number }) : undefined
 }
+
+// The texts of the check line under the band's row, in order; undefined when none is drawn.
+async function checkLine($: Engine): Promise<{ text: string; color?: unknown; strikethrough?: unknown; dim?: unknown }[] | undefined> {
+  const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
+  const box = await ui.find({ key: 'check' })
+  const all = box ? await ui.findAll({ type: 'Text' }) : []
+  await ui.unmount()
+  if (!box) return undefined
+  const texts = all.map(t => ({ text: t.text, color: t.props.color, strikethrough: t.props.strikethrough, dim: t.props.dimColor }))
+  const from = texts.findIndex(t => t.text === 'Fix English:')
+  return from < 0 ? [] : texts.slice(from)
+}
+
+const typed = ($: Engine, text: string) =>
+  ($.prompt as unknown as { change: (e: unknown) => Promise<unknown> }).change({ text, cursor: text.length, origin: { kind: 'engine' } })
 
 // Presses a band button; a switch (in the Details) unfolds them first when they are folded.
 async function press($: Engine, key: string) {
@@ -512,4 +528,84 @@ test('shape prompt: an aside the model gives back unchanged, or answers with an 
   const same = await submit($, 'make the page faster, it is slow')
   expect(same.text).toBe('make the page faster, it is slow')
   expect(world.toasts).toHaveLength(0)
+})
+
+test('fix English, live: the draft is checked 900 ms after the last change and the corrections drawn under the row; sent, the check is reused and dimmed', async ($, on) => {
+  const { clock, world } = await session($, on, { reply: p => p.replace('teh', 'the'), store: { prompt: { ...PROMPT_ON, fixEnglish: true } } })
+  await typed($, 'please fix teh')
+  await clock.advance(500)
+  await typed($, 'please fix teh header of the page')
+  await clock.advance(500)
+  expect(world.completions).toHaveLength(0)
+  await clock.advance(500)
+  expect(world.completions).toHaveLength(1)
+  const line = await checkLine($)
+  expect(line?.find(t => t.text === 'teh')).toMatchObject({ color: '#e0846b', strikethrough: true })
+  expect(line?.find(t => t.text === 'the')).toMatchObject({ color: '#4caf6e' })
+
+  // Enter: no second call, the corrections ride as context, and the line goes dim.
+  const out = await submit($, 'please fix teh header of the page')
+  expect(world.completions).toHaveLength(1)
+  expect(out.context?.[0]).toContain('~~teh~~ **the**')
+  expect((await checkLine($))?.[0]).toMatchObject({ text: 'Fix English:', dim: true })
+
+  // A right draft says so; a Chinese one clears the line.
+  await typed($, 'please fix the header of the page')
+  await clock.advance(1000)
+  expect((await checkLine($))?.some(t => t.text === 'no issues')).toBe(true)
+  await typed($, '把标题改一下')
+  expect(await checkLine($)).toBeUndefined()
+})
+
+test('shape prompt: a prompt ending in ++ is shaped with the switch off, and the mark is dropped', async ($, on) => {
+  const { world } = await session($, on, { reply: 'Goal: a faster page.', store: { prompt: { ...PROMPT_ON } } })
+  const plain = await submit($, 'make the page faster, it is slow')
+  expect(plain.text).toBe('make the page faster, it is slow')
+  expect(world.completions).toHaveLength(0)
+  const marked = await submit($, 'make the page faster, it is slow ++')
+  expect(marked.text).toBe('Goal: a faster page.')
+  expect(marked.context?.[0]).toContain('make the page faster, it is slow')
+  expect(marked.context?.[0]).not.toContain('++')
+  expect(world.completions[0]?.prompt).toBe('make the page faster, it is slow')
+})
+
+test('keep warm: turns itself off after its window, and when a ping finds the cache cold', async ($, on) => {
+  const { clock, world } = await session($, on)
+  await answer($)
+  await press($, 'keep-warm')
+  expect(await stateOf($, 'keep-warm')).toBe('on')
+  // Two pings in, the window (3 hours) runs out.
+  await clock.advance(59 * MIN + 2000)
+  await clock.advance(59 * MIN + 2000)
+  expect(world.forks).toHaveLength(2)
+  await clock.advance(62 * MIN)
+  expect(await stateOf($, 'keep-warm')).toBe('off')
+  expect(world.toasts.some(t => t.startsWith('Keep warm off: its 3 hours are up'))).toBe(true)
+})
+
+test('keep warm: a ping that read no cache turns it off with a toast', async ($, on) => {
+  const { clock, world } = await session($, on, { coldFork: true })
+  await answer($)
+  await press($, 'keep-warm')
+  await clock.advance(59 * MIN + 2000)
+  expect(world.forks).toHaveLength(1)
+  expect(await stateOf($, 'keep-warm')).toBe('off')
+  expect(world.toasts.some(t => t.startsWith('Keep warm off: the cache was already cold'))).toBe(true)
+})
+
+test('details: the buttons carry hotkeys, none on an inert sub-option', async ($, on) => {
+  await session($, on)
+  await press($, 'details')
+  const byKey = async (key: string) => {
+    const ui2 = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
+    const b = await ui2.find({ key })
+    await ui2.unmount()
+    return b?.props.hotkey
+  }
+  expect(await byKey('handoff-all')).toBe('h')
+  expect(await byKey('details')).toBe('d')
+  expect(await byKey('keep-warm')).toBe('k')
+  expect(await byKey('fix-english')).toBe('f')
+  expect(await byKey('in-reply')).toBeUndefined()
+  expect(await byKey('shape-prompt')).toBe('s')
 })

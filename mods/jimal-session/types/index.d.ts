@@ -31,8 +31,12 @@ export type PromptSwitches = {
 export type Segment = { kind: 'same' | 'del' | 'ins'; text: string }
 
 export type Check = {
-  /** The corrected prompt with its changes, in order. */
+  /** The corrected text with its changes, in order; none when it was right. */
   segments: Segment[]
+  /** The draft (or the prompt as sent) the check is of. */
+  text: string
+  /** `checking` while the small model works, `ready` for the draft, `submitted` once that text was sent (drawn dim). */
+  status: 'checking' | 'ready' | 'submitted'
 }
 
 declare module 'claude-code' {
@@ -56,6 +60,8 @@ declare module 'claude-code' {
       check: Check | null
       /** The Details boxes are unfolded under the band's row. */
       isDetailsOpen: boolean
+      /** When Keep warm turns itself off, in ms since the epoch; null while off. */
+      keepWarmUntil: number | null
     }
   }
 }

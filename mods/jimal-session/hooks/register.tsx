@@ -16,8 +16,10 @@ const idleAsk = atom({ plugin: 'jimal-session', key: 'idleAsk' } as const, false
 const promptSwitches = atom({ plugin: 'jimal-session', key: 'promptSwitches' } as const, { fixEnglish: false, inReply: true, inPane: true, shapePrompt: false } as PromptSwitches)
 // What a prompt feature is doing right now, counted in seconds; '' when idle.
 const promptStatus = atom({ plugin: 'jimal-session', key: 'promptStatus' } as const, '')
-// The last corrections Fix English found; null before any.
+// Fix English's check of the draft as typed (and the prompt as sent); null before any.
 const check = atom({ plugin: 'jimal-session', key: 'check' } as const, null as Check | null)
+// When Keep warm turns itself off, in ms since the epoch; null while off.
+const keepWarmUntil = atom({ plugin: 'jimal-session', key: 'keepWarmUntil' } as const, null as number | null)
 // The Details boxes are unfolded under the band's row.
 const isDetailsOpen = atom({ plugin: 'jimal-session', key: 'isDetailsOpen' } as const, false)
 
@@ -42,6 +44,10 @@ const REQUEST_FILE = 'handoff-all.request'
 const REQUEST_MAX_AGE_MS = 10 * 60 * 1000
 const REQUEST_POLL_MS = 5000
 const KEEP_WARM_PROMPT = 'Keep-alive ping to refresh the prompt cache. Reply with "ok" only.'
+// Keep warm runs this long at most, then turns itself off; a ping that finds the cache cold
+// (fewer cached tokens read than this) turns it off too: each ping would pay for the whole context.
+const KEEP_WARM_MAX_MS = 3 * 60 * 60 * 1000
+const KEEP_WARM_MIN_CACHED = 1000
 
 const GREEN = '#4caf6e'
 const AMBER = '#e2a94e'
@@ -215,6 +221,11 @@ const warm = async ($: EngineInterface): Promise<void> => {
     if (r.isAnswered) {
       const at = await $.clock.now()
       await update($, expiresAt, () => at + CACHE_TTL_MS)
+      if (r.usage.cache_read_input_tokens < KEEP_WARM_MIN_CACHED) {
+        await update($, keepWarm, () => false)
+        await update($, keepWarmUntil, () => null)
+        $.ui.toast('Keep warm off: the cache was already cold, so the ping paid for the whole context.')
+      }
     } else if (r.reason !== 'nothing-to-fork') {
       $.ui.toast(`Keep warm failed: ${r.reason}`)
     }
@@ -332,6 +343,12 @@ const answerRequest = async ($: EngineInterface, at: number): Promise<void> => {
 const tick = async ($: EngineInterface): Promise<void> => {
   const at = await $.clock.now()
   await update($, now, () => at)
+  const until = await read($, keepWarmUntil)
+  if (until !== null && at >= until) {
+    await update($, keepWarm, () => false)
+    await update($, keepWarmUntil, () => null)
+    $.ui.toast(`Keep warm off: its ${Math.round(KEEP_WARM_MAX_MS / HOUR_MS)} hours are up.`)
+  }
   const deadline = await read($, expiresAt)
   if (deadline === null || (await read($, isBusy)) || isWarming) return
   await answerRequest($, at)
@@ -380,6 +397,10 @@ const SMALL_MODEL = 'haiku'
 const MIN_WORDS = 4
 // A prompt shorter than this (characters) is not worth shaping.
 const MIN_SHAPE_CHARS = 6
+// A draft is checked this long after the last keystroke.
+const CHECK_DEBOUNCE_MS = 900
+// A prompt ending in this is shaped even with Shape prompt off; the mark is dropped.
+const SHAPE_MARK = /\s*\+\+\s*$/
 
 // English: Latin letters, no CJK script, and at least MIN_WORDS words.
 const isEnglish = (text: string) =>
@@ -532,6 +553,35 @@ const shapeText = async ($: EngineInterface, text: string): Promise<string | nul
     return null
   })
 
+// The draft is checked while it is typed, CHECK_DEBOUNCE_MS after the last keystroke, and
+// the corrections drawn under the band's row before Enter; a check of the text as sent is
+// then used at the submission, so Enter does not wait.
+let checkTimer: { cancel: () => void } | null = null
+let checkSeq = 0
+
+const draftOf = (text: string) => text.replace(SHAPE_MARK, '').trim()
+
+const scheduleCheck = async ($: EngineInterface, text: string): Promise<void> => {
+  checkTimer?.cancel()
+  checkTimer = null
+  const sw = await read($, promptSwitches)
+  const draft = draftOf(text)
+  if (!sw.fixEnglish || !isEnglish(draft) || draft.startsWith('/')) {
+    checkSeq += 1
+    await update($, check, prev => (prev && prev.status !== 'submitted' ? null : prev))
+    return
+  }
+  const mine = ++checkSeq
+  checkTimer = $.clock.after(CHECK_DEBOUNCE_MS, () => {
+    void (async () => {
+      await update($, check, () => ({ segments: [], text: draft, status: 'checking' }))
+      const segments = await proofread($, draft).catch(() => null)
+      if (mine !== checkSeq) return
+      await update($, check, () => ({ segments: segments ?? [], text: draft, status: 'ready' }))
+    })().catch(() => undefined)
+  })
+}
+
 const fixContext = (marked: string) =>
   [
     '[jimal-session] The prompt above was written in English and has been proofread; the corrected version follows, with each change marked (~~removed~~ **added**).',
@@ -646,17 +696,25 @@ export const register: Register = on => {
       const sw = await read($, promptSwitches)
       const text = e.text
 
-      // Shaped: the structured version is the prompt, the original rides beside it.
-      if (sw.shapePrompt && text.trim().length >= MIN_SHAPE_CHARS) {
-        const shaped = await shapeText($, text).catch(() => null)
-        if (shaped) return next({ ...e, text: shaped, context: [...(e.context ?? []), shapeContext(text)] })
-        return next(e)
+      // Shaped (the switch on, or the prompt ending in `++`): the structured version is the
+      // prompt, the original rides beside it.
+      const isMarked = SHAPE_MARK.test(text)
+      const body = isMarked ? text.replace(SHAPE_MARK, '') : text
+      if ((sw.shapePrompt || isMarked) && body.trim().length >= MIN_SHAPE_CHARS) {
+        const shaped = await shapeText($, body).catch(() => null)
+        if (shaped) return next({ ...e, text: shaped, context: [...(e.context ?? []), shapeContext(body)] })
+        return next({ ...e, text: body })
       }
 
       if (sw.fixEnglish && isEnglish(text) && (sw.inReply || sw.inPane)) {
-        const segments = await proofread($, text).catch(() => null)
-        if (segments) {
-          await update($, check, () => ({ segments }))
+        // The draft's check stands for the text as sent; another is run only when it differs.
+        checkTimer?.cancel()
+        checkTimer = null
+        checkSeq += 1
+        const live = await read($, check)
+        const segments = live && live.text === draftOf(text) && live.status !== 'checking' ? live.segments : ((await proofread($, text.trim()).catch(() => null)) ?? [])
+        await update($, check, () => ({ segments, text: draftOf(text), status: 'submitted' }))
+        if (segments.length > 0) {
           if (sw.inPane) await $.ui.open({ id: PANE, title: 'Prompt check' }).catch(() => undefined)
           if (sw.inReply) return next({ ...e, context: [...(e.context ?? []), fixContext(markChanges(segments))] })
         }
@@ -685,6 +743,18 @@ export const register: Register = on => {
       }
     }
     return withPrompt(e)
+  })
+
+  // Fix English, while the draft is typed: a keystroke, a paste, a history recall or a fill.
+  on('prompt.edit', async ($, e, next) => {
+    const r = await next(e)
+    // A bare cursor move changes nothing; a digit in an empty box presses a band hotkey.
+    if (r.text !== e.text && !(e.text === '' && /^[0-9]$/.test(r.text))) await scheduleCheck($, r.text)
+    return r
+  })
+  on('prompt.change', async ($, e, next) => {
+    await scheduleCheck($, e.text)
+    return next(e)
   })
 
   on('command.run', { command: 'prompt-check' }, async $ => {
@@ -826,8 +896,8 @@ export const register: Register = on => {
     }
     const buttons = (
       <Box key="buttons" flexDirection="row" alignItems="center" columnGap={2} flexShrink={0}>
-        <Button key="handoff-all" label="Handoff all" plain onPress={() => void requestHandoffAll($).catch(() => undefined)} />
-        <Button key="details" label={`Details ${isOpen ? '▴' : '▾'}`} plain onPress={() => void setDetails(!isOpen)} />
+        <Button key="handoff-all" label="Handoff all" plain hotkey="h" onPress={() => void requestHandoffAll($).catch(() => undefined)} />
+        <Button key="details" label={`Details ${isOpen ? '▴' : '▾'}`} plain hotkey="d" onPress={() => void setDetails(!isOpen)} />
       </Box>
     )
 
@@ -840,12 +910,43 @@ export const register: Register = on => {
       const value = await update($, promptSwitches, prev => ({ ...prev, ...patch }))
       await $.store.set(PROMPT_STORE_KEY, value).catch(() => undefined)
     }
-    const row = (key: string, label: string, isOn: boolean, onPress: () => unknown, opts: { isSub?: boolean; isInert?: boolean } = {}) => (
+    // The draft's check, under the row while Fix English is on: checking, no issues, or the
+    // corrections inline (removed red and struck through, added green); dim once sent.
+    const live = sw.fixEnglish ? await read($, check) : null
+    const checkLine =
+      live === null ? null : (
+        <Box key="check" flexDirection="row" alignItems="flex-start" paddingX={1} columnGap={1}>
+          <Text dimColor={live.status !== 'ready'}>Fix English:</Text>
+          {live.status === 'checking' ? (
+            <Text dimColor>checking…</Text>
+          ) : live.segments.length === 0 ? (
+            <Text color={GREEN} dimColor={live.status === 'submitted'}>no issues</Text>
+          ) : (
+            <Text wrap="wrap" dimColor={live.status === 'submitted'}>
+              {live.segments.map((s, i) =>
+                s.kind === 'del' ? (
+                  <Text key={`c${i}`} color={RED} strikethrough>
+                    {s.text}
+                  </Text>
+                ) : s.kind === 'ins' ? (
+                  <Text key={`c${i}`} color={GREEN} bold>
+                    {s.text}
+                  </Text>
+                ) : (
+                  <Text key={`c${i}`}>{s.text}</Text>
+                ),
+              )}
+            </Text>
+          )}
+        </Box>
+      )
+
+    const row = (key: string, label: string, isOn: boolean, onPress: () => unknown, opts: { isSub?: boolean; isInert?: boolean; hotkey?: string } = {}) => (
       <Box key={`${key}-row`} flexDirection="row" alignItems="center" justifyContent="space-between" columnGap={3} paddingLeft={opts.isSub ? 2 : 0} height={1}>
         <Text dimColor={!isOn || opts.isInert}>{label}</Text>
         <Box flexDirection="row" alignItems="center" columnGap={1} flexShrink={0}>
           <Text color={isOn && !opts.isInert ? GREEN : GREY}>●</Text>
-          <Button key={key} label={isOn ? 'on' : 'off'} plain dimColor={!isOn || opts.isInert} onPress={() => (opts.isInert ? undefined : void onPress())} />
+          <Button key={key} label={isOn ? 'on' : 'off'} plain dimColor={!isOn || opts.isInert} {...(opts.hotkey && !opts.isInert ? { hotkey: opts.hotkey } : {})} onPress={() => (opts.isInert ? undefined : void onPress())} />
         </Box>
       </Box>
     )
@@ -859,20 +960,25 @@ export const register: Register = on => {
       <Box key="details" flexDirection="row" flexWrap="wrap" alignItems="flex-start" columnGap={1} rowGap={0} paddingX={1}>
         {box('session', 'Session', [
           // Keep warm and Auto-handoff exclude each other: turning one on turns the other off.
+          // Keep warm runs for KEEP_WARM_MAX_MS at most, then turns itself off (tick).
           row('keep-warm', 'Keep warm', isWarm, async () => {
             await update($, keepWarm, v => !v)
+            await update($, keepWarmUntil, () => (isWarm ? null : at + KEEP_WARM_MAX_MS))
             if (!isWarm) await update($, autoHandoff, () => false)
-          }),
+          }, { hotkey: 'k' }),
           row('auto-handoff', 'Auto-handoff', isAuto, async () => {
             await update($, autoHandoff, v => !v)
-            if (!isAuto) await update($, keepWarm, () => false)
-          }),
+            if (!isAuto) {
+              await update($, keepWarm, () => false)
+              await update($, keepWarmUntil, () => null)
+            }
+          }, { hotkey: 'a' }),
         ])}
         {box('prompt', 'Prompt', [
-          row('fix-english', 'Fix English', sw.fixEnglish, () => setPrompt({ fixEnglish: !sw.fixEnglish })),
-          row('in-reply', 'In reply', sw.inReply, () => setPrompt({ inReply: !sw.inReply }), { isSub: true, isInert: !sw.fixEnglish }),
-          row('in-pane', 'In pane', sw.inPane, () => setPrompt({ inPane: !sw.inPane }), { isSub: true, isInert: !sw.fixEnglish }),
-          row('shape-prompt', 'Shape prompt', sw.shapePrompt, () => setPrompt({ shapePrompt: !sw.shapePrompt })),
+          row('fix-english', 'Fix English', sw.fixEnglish, () => setPrompt({ fixEnglish: !sw.fixEnglish }), { hotkey: 'f' }),
+          row('in-reply', 'In reply', sw.inReply, () => setPrompt({ inReply: !sw.inReply }), { isSub: true, isInert: !sw.fixEnglish, hotkey: 'r' }),
+          row('in-pane', 'In pane', sw.inPane, () => setPrompt({ inPane: !sw.inPane }), { isSub: true, isInert: !sw.fixEnglish, hotkey: 'p' }),
+          row('shape-prompt', 'Shape prompt', sw.shapePrompt, () => setPrompt({ shapePrompt: !sw.shapePrompt }), { hotkey: 's' }),
         ])}
       </Box>
     ) : null
@@ -903,6 +1009,7 @@ export const register: Register = on => {
           {figures}
           {buttons}
         </Box>
+        {checkLine}
         {details}
         {below}
       </Box>
