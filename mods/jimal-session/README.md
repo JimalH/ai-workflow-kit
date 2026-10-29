@@ -139,3 +139,7 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 ## Changes (0.6.1)
 
 - The cache dot on the desktop is an SVG circle of the size and place the progress bar (jimal-progress) draws its own (4 px radius at x=5, the text from x=16), and the row has no left padding, so the two line up; the terminal keeps the glyph.
+
+## Changes (0.6.2)
+
+- On the desktop the cache dot and its text are one SVG drawn as the progress bar draws its row (22 px high, a 4 px dot at x=5, 13 px text from x=16 in the system font), so the dot sits on the text's centre line and lines up with the progress bar's.

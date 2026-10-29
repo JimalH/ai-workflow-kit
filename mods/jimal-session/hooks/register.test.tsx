@@ -117,8 +117,10 @@ async function texts($: Engine): Promise<string[]> {
   const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
   const found = await ui.findAll({ type: 'Text' })
   const buttons = await ui.findAll({ type: 'Button' })
+  // On the desktop the cache dot and its text are one Svg, named by its alt.
+  const svgs = await ui.findAll({ type: 'Svg' })
   await ui.unmount()
-  return [...found.map(t => t.text), ...buttons.map(b => String(b.props.label))]
+  return [...found.map(t => t.text), ...buttons.map(b => String(b.props.label)), ...svgs.map(v => String(v.props.alt))]
 }
 
 // A switch's state, the label of its On/Off button in the unfolded Details; null when not drawn.
@@ -359,10 +361,13 @@ test('usage: with no reading yet, the band shows a grey cold cache and no usage'
   await session($, on, { noUsage: true })
   const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
   const found = await ui.findAll({ type: 'Text' })
+  const svgs = await ui.findAll({ type: 'Svg' })
   await ui.unmount()
   const texts = found.map(t => t.text)
-  expect(texts).toContain('cache cold')
-  expect(found.find(t => t.text === 'cache cold')?.props.color).toBe('#8a8f8c')
+  // The desktop draws the dot and its text as one grey Svg.
+  const cache = svgs.find(v => v.props.alt === 'cache cold')
+  expect(cache).toBeDefined()
+  expect(String(cache?.props.source)).toContain('fill="#8a8f8c"')
   expect(texts.some(t => t.includes('%') || t === '—')).toBe(false)
 })
 

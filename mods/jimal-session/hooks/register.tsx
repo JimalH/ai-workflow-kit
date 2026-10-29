@@ -50,6 +50,14 @@ const KEEP_WARM_MAX_MS = 3 * 60 * 60 * 1000
 const KEEP_WARM_MIN_CACHED = 1000
 
 const GREEN = '#4caf6e'
+// The desktop row as the progress bar (jimal-progress) draws its own: 22 px high, a 4 px dot
+// at x=5, 13 px text from x=16 in the system font, about 6.6 px a character.
+const ROW_PX = 22
+const SVG_FONT = "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif"
+const xml = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const cacheSvgW = (text: string) => 16 + Math.round(text.length * 6.6) + 2
+const cacheSvg = (text: string, color: string) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${cacheSvgW(text)}" height="${ROW_PX}" viewBox="0 0 ${cacheSvgW(text)} ${ROW_PX}"><circle cx="5" cy="${ROW_PX / 2}" r="4" fill="${color}"/><text x="16" y="${ROW_PX / 2 + 4.5}" font-family="${SVG_FONT}" font-size="13" font-weight="500" fill="${color}">${xml(text)}</text></svg>`
 const AMBER = '#e2a94e'
 const RED = '#e0846b'
 const GREY = '#8a8f8c'
@@ -871,13 +879,11 @@ export const register: Register = on => {
     // past the estimate, the line is cut at its end rather than move the buttons.
     const figures = (
       <Box key="figures" flexDirection="row" alignItems="center" columnGap={2} flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
-        {/* The dot as the progress bar draws its own: a 4 px circle at x=5, the text from x=16;
-            the terminal, with no Svg, keeps the glyph. */}
+        {/* The dot and its text drawn as the progress bar draws its own row: one SVG, a 4 px
+            circle at x=5 and the text from x=16 in the same font, so the two line up to the
+            pixel; the terminal, with no Svg, keeps the glyph. */}
         {e.surface !== 'terminal' && 'Svg' in ui ? (
-          <Box flexDirection="row" alignItems="center" flexShrink={0}>
-            <ui.Svg source={`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="14" viewBox="0 0 16 14"><circle cx="5" cy="7" r="4" fill="${color}"/></svg>`} alt="cache" width={16} height={14} />
-            <Text color={color}>{shown.cache}</Text>
-          </Box>
+          <ui.Svg source={cacheSvg(shown.cache, color)} alt={shown.cache} width={cacheSvgW(shown.cache)} height={ROW_PX} />
         ) : (
           <Box flexDirection="row" columnGap={1} flexShrink={0}>
             <Text color={color}>●</Text>
