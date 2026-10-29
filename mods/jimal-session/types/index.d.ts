@@ -56,8 +56,6 @@ declare module 'claude-code' {
       check: Check | null
       /** The Details boxes are unfolded under the band's row. */
       isDetailsOpen: boolean
-      /** How far the list of switches that are on has scrolled, in cells. */
-      scrollAt: number
     }
   }
 }

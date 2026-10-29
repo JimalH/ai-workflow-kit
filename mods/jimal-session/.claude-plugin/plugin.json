@@ -1,6 +1,6 @@
 {
   "name": "jimal-session",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Band above the prompt: prompt cache countdown, session and weekly usage left, a keep-warm switch and auto-handoff that saves a handover note before the cache expires.",
   "author": {
     "name": "JimalH",

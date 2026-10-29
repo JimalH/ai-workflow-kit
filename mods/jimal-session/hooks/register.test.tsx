@@ -128,6 +128,14 @@ async function stateOf($: Engine, key: string): Promise<unknown> {
   return found ? String(found.props.label).toLowerCase() : null
 }
 
+// The props the band hands its middle module; undefined when the middle is not drawn.
+async function middleOf($: Engine): Promise<{ list: string; working: string; width: number } | undefined> {
+  const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
+  const found = await ui.find({ key: 'middle' })
+  await ui.unmount()
+  return found ? (found.props.props as { list: string; working: string; width: number }) : undefined
+}
+
 // Presses a band button; a switch (in the Details) unfolds them first when they are folded.
 async function press($: Engine, key: string) {
   let ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
@@ -214,7 +222,7 @@ test('keep warm: refreshes the cache 59 minutes after the last answer', async ($
   // Refreshed: a full hour again (no minutes shown above half an hour); the middle lists the switch.
   const shown = await texts($)
   expect(shown).toContain('cache warm')
-  expect(shown.some(t => t.includes('Keep warm'))).toBe(true)
+  expect((await middleOf($))?.list).toContain('Keep warm')
   expect(await stateOf($, 'keep-warm')).toBe('on')
   expect(await stateOf($, 'auto-handoff')).toBe('off')
 })
@@ -232,7 +240,7 @@ test('auto-handoff: writes a note in the last minute; a compaction refused is sa
 
   // The kit has no transcript for a compaction to read, so it refuses one: the band and a
   // toast say the note was not applied (the compaction's answer is tested below).
-  expect((await texts($)).some(t => t.includes('note not applied'))).toBe(true)
+  expect((await middleOf($))?.working).toContain('note not applied')
   expect(world.toasts.some(t => t.startsWith('Handover note saved, but not applied:'))).toBe(true)
 
   // Not applied, the note is not used up by the next prompt: kept for a new conversation.
@@ -306,32 +314,20 @@ test('band: a narrow window drops the figures one by one, the buttons stay', asy
   expect(narrow.hasSwitches).toBe(true)
 })
 
-test('band: the middle lists the switches that are on, scrolled when long; a feature at work shows there instead', async ($, on) => {
-  const { clock } = await session($, on, { delayMs: 2500, store: { prompt: { fixEnglish: true, inReply: true, inPane: true, shapePrompt: false } } })
-  const middle = async () => (await texts($)).filter(t => t.includes('●') || t.startsWith('◷') || /^[A-Za-z ]+$/.test(t))
+test('band: the middle module gets the switches that are on, and the working line while a feature works', async ($, on) => {
+  await session($, on, { delayMs: 2500, store: { prompt: { fixEnglish: true, inReply: true, inPane: true, shapePrompt: false } } })
+  expect((await middleOf($))?.list).toBe('● Fix English  ● In reply  ● In pane')
   await press($, 'auto-handoff')
-  const shown = await middle()
-  expect(shown.join('')).toContain('Auto-handoff')
-  expect(shown.join('')).toContain('Fix English')
-  expect(shown.join('')).toContain('In pane')
-
-  // The list is longer than the middle: it moves one cell a tick.
-  const window = async () => {
-    const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
-    const box = await ui.find({ key: 'middle' })
-    await ui.unmount()
-    return JSON.stringify(box)
-  }
-  const before = await window()
-  await clock.advance(1000)
-  expect(await window()).not.toBe(before)
+  const idle = await middleOf($)
+  expect(idle?.list).toBe('● Auto-handoff  ● Fix English  ● In reply  ● In pane')
+  expect(idle?.working).toBe('')
+  expect(idle?.width).toBeGreaterThanOrEqual(8)
 
   // While Fix English works, its own line stands in the middle, counted.
   const pending = $.prompt.submit({ text: 'please fix teh header of the page' } as never)
-  const working = await texts($)
-  expect(working.some(t => /^◷ Fix English · checking… \ds$/.test(t))).toBe(true)
+  expect((await middleOf($))?.working).toMatch(/^◷ Fix English · checking… \ds$/)
   await pending
-  expect((await texts($)).some(t => t.startsWith('◷'))).toBe(false)
+  expect((await middleOf($))?.working).toBe('')
 })
 
 test('usage: an empty reading keeps the last one', async ($, on) => {

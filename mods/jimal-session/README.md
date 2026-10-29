@@ -102,3 +102,8 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 
 - A Details row gives its native On/Off button a slot of 8 cells, as the desktop draws it wider than its label: no more overlap with the border.
 - The middle of the row (the switches on) now outranks the usage figures when the row is short: the week goes first, then the 5-hour window, and the middle keeps at least 8 cells.
+
+## Changes (0.5.3)
+
+- The middle of the row is a surface module of its own (`hooks/middle.tsx`): the list of switches on slides one cell every 350 ms when it does not fit, and the working line has a band of light sweeping over it (90 ms a frame), with no redraw of the band. It is one row high, so a narrow window no longer wraps it and makes the row jump.
+- A Details box has a fixed height from its rows (title, rows, border).

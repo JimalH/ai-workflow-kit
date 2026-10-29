@@ -20,8 +20,6 @@ const promptStatus = atom({ plugin: 'jimal-session', key: 'promptStatus' } as co
 const check = atom({ plugin: 'jimal-session', key: 'check' } as const, null as Check | null)
 // The Details boxes are unfolded under the band's row.
 const isDetailsOpen = atom({ plugin: 'jimal-session', key: 'isDetailsOpen' } as const, false)
-// How far the list of switches that are on has scrolled, in cells; advanced by the tick.
-const scrollAt = atom({ plugin: 'jimal-session', key: 'scrollAt' } as const, 0)
 
 // Claude Code writes the main thread's prompt cache with a 1-hour lifetime on a subscription.
 const CACHE_TTL_MS = 60 * 60 * 1000
@@ -336,7 +334,6 @@ const answerRequest = async ($: EngineInterface, at: number): Promise<void> => {
 const tick = async ($: EngineInterface): Promise<void> => {
   const at = await $.clock.now()
   await update($, now, () => at)
-  await update($, scrollAt, v => v + 1)
   const deadline = await read($, expiresAt)
   if (deadline === null || (await read($, isBusy)) || isWarming) return
   await answerRequest($, at)
@@ -724,7 +721,7 @@ export const register: Register = on => {
     const drawn = await Promise.resolve(next(e)).catch(() => null)
     const below = drawn && typeof drawn === 'object' && (drawn as { type?: string }).type !== 'engine' ? drawn : null
 
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const { Box, Text, Button, Client } = $.ui.resolve(e)
     const at = Math.max(await read($, now), await $.clock.now())
     const deadline = await read($, expiresAt)
     const left = deadline === null ? null : deadline - at
@@ -784,31 +781,12 @@ export const register: Register = on => {
     const showSession = shown.session && session !== undefined
     const showWeek = shown.week && week !== undefined
 
-    // The list of switches on, scrolled: a window of MIDDLE_W cells over the list, a gap,
-    // and the list again, moved one cell per tick; a list that fits stands still.
-    const scrolled = await (async () => {
-      if (!showMiddle || working) return listText
-      if (listText.length <= middleW) return listText
-      const loop = `${listText}   `
-      const start = (await read($, scrollAt)) % loop.length
-      return (loop + loop).slice(start, start + middleW)
-    })()
-    // Dots green, names plain: the window's text split at its dots.
-    const middleParts = scrolled.split('●')
+    // The middle is a surface module of its own (middle.tsx): it slides the list and sweeps a
+    // light over the working line at its own pace, with no redraw of the band. One row, so
+    // a narrow window never wraps it.
     const middleBox = showMiddle ? (
-      <Box key="middle" flexDirection="row" alignItems="center" flexShrink={0} width={middleW} overflow="hidden">
-        {working ? (
-          <Text color={AMBER} wrap="truncate-end">{working}</Text>
-        ) : (
-          <Text wrap="truncate-end">
-            {middleParts.map((part, i) => (
-              <Text key={`m${i}`}>
-                {i > 0 ? <Text color={GREEN}>●</Text> : null}
-                {part}
-              </Text>
-            ))}
-          </Text>
-        )}
+      <Box key="middle-slot" flexDirection="row" alignItems="center" flexShrink={0} width={middleW} height={1} overflow="hidden">
+        <Client key="middle" module="./middle.tsx" props={{ list: listText, working, width: middleW }} width={middleW} height={1} />
       </Box>
     ) : null
 
@@ -863,7 +841,7 @@ export const register: Register = on => {
       </Box>
     )
     const box = (key: string, title: string, rows: unknown[]) => (
-      <Box key={`${key}-box`} flexDirection="column" borderStyle="round" borderColor={GREY} borderDimColor paddingX={1} minWidth={BOX_W} flexShrink={0}>
+      <Box key={`${key}-box`} flexDirection="column" borderStyle="round" borderColor={GREY} borderDimColor paddingX={1} minWidth={BOX_W} height={rows.length + 3} flexShrink={0}>
         <Text dimColor>{title}</Text>
         {rows}
       </Box>
