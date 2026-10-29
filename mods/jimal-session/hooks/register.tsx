@@ -54,6 +54,7 @@ const HANDOFF_ALL_W = 'Handoff all'.length + 2
 const DETAILS_W = 'Details ▾'.length + 2
 // The middle of the row (what runs now, or the switches on), in cells.
 const MIDDLE_W = 36
+const MIN_MIDDLE_W = 12
 // A Details box, in cells, border included.
 const BOX_W = 30
 
@@ -761,7 +762,9 @@ export const register: Register = on => {
     const width = (parts: string[]) => parts.reduce((w, p) => w + p.length + 3, 0)
     const cacheShort = cache.replace(/^cache (warm )?/, '') || cache
     const middleText = working || listText
-    const middleW = Math.min(MIDDLE_W, middleText.length)
+    // The middle takes what the figures leave, up to MIDDLE_W; under MIN_MIDDLE_W it is dropped.
+    const figuresW = width([`● ${cache}`, ...(session ? [sessionText] : []), ...(week ? [weekText] : [])])
+    const middleW = Math.max(0, Math.min(MIDDLE_W, middleText.length, room - figuresW - 3))
     const plan = [
       { middle: true, week: true, session: true, cache },
       { middle: false, week: true, session: true, cache },
@@ -771,7 +774,7 @@ export const register: Register = on => {
     ]
     const shown =
       plan.find(p =>
-        width([`● ${p.cache}`, ...(p.session && session ? [sessionText] : []), ...(p.week && week ? [weekText] : []), ...(p.middle && middleText ? ['x'.repeat(middleW)] : [])]) <= room,
+        width([`● ${p.cache}`, ...(p.session && session ? [sessionText] : []), ...(p.week && week ? [weekText] : []), ...(p.middle && middleText ? ['x'.repeat(Math.max(middleW, MIN_MIDDLE_W))] : [])]) <= room,
       ) ?? plan[plan.length - 1]!
     const showMiddle = shown.middle && middleText !== ''
     // A window with no reading yet is left out, rather than shown as dashes.
@@ -782,10 +785,10 @@ export const register: Register = on => {
     // and the list again, moved one cell per tick; a list that fits stands still.
     const scrolled = await (async () => {
       if (!showMiddle || working) return listText
-      if (listText.length <= MIDDLE_W) return listText
+      if (listText.length <= middleW) return listText
       const loop = `${listText}   `
       const start = (await read($, scrollAt)) % loop.length
-      return (loop + loop).slice(start, start + MIDDLE_W)
+      return (loop + loop).slice(start, start + middleW)
     })()
     // Dots green, names plain: the window's text split at its dots.
     const middleParts = scrolled.split('●')
@@ -849,13 +852,13 @@ export const register: Register = on => {
       await $.store.set(PROMPT_STORE_KEY, value).catch(() => undefined)
     }
     const row = (key: string, label: string, isOn: boolean, onPress: () => unknown, opts: { isSub?: boolean; isInert?: boolean } = {}) => (
-      <Box key={`${key}-row`} flexDirection="row" alignItems="center" justifyContent="space-between" columnGap={2} paddingLeft={opts.isSub ? 2 : 0}>
+      <Box key={`${key}-row`} flexDirection="row" alignItems="center" justifyContent="space-between" columnGap={3} paddingLeft={opts.isSub ? 2 : 0}>
         <Text dimColor={!isOn || opts.isInert}>{label}</Text>
         <Button key={key} label={isOn ? 'On' : 'Off'} variant={isOn && !opts.isInert ? 'primary' : 'secondary'} dimColor={opts.isInert} onPress={() => (opts.isInert ? undefined : void onPress())} />
       </Box>
     )
     const box = (key: string, title: string, rows: unknown[]) => (
-      <Box key={`${key}-box`} flexDirection="column" borderStyle="round" borderColor={GREY} borderDimColor paddingX={1} width={BOX_W} flexShrink={0}>
+      <Box key={`${key}-box`} flexDirection="column" borderStyle="round" borderColor={GREY} borderDimColor paddingX={1} minWidth={BOX_W} flexShrink={0}>
         <Text dimColor>{title}</Text>
         {rows}
       </Box>

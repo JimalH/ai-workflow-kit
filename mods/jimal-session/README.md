@@ -92,3 +92,8 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 - jimal-prompt folded in: Fix English (In reply / In pane) and Shape prompt, with the `Prompt check` pane and `/prompt-check`.
 - The band's row: the switches that are on listed in the middle, scrolled when long; a feature at work shows its own line there, counted in seconds.
 - `Details` fold at the right end: the switches in bordered boxes by group, each a native On/Off button; Keep warm and Auto-handoff now exclude each other by turning the other off rather than hiding it.
+
+## Changes (0.5.1)
+
+- A Details box grows to its content instead of a fixed width: a native On/Off button is wider than its label, and overlapped the border.
+- The middle of the row shrinks to the room the figures leave (down to 12 cells) before it is dropped; the scrolled window follows that width.
