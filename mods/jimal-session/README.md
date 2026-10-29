@@ -77,3 +77,7 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 - `Handoff all` button: one press, and every open session on this machine writes and applies its own handover note (through a request file each session polls), for use before closing the app.
 - Asks once, in the band, whether to turn Claude Code's idle compaction off: it fires before the auto-handoff and its summary overrides the note on return. `Turn off` writes `"idleCompaction": false` to `~/.claude/settings.json`.
 - The band says `note applied` once a note has replaced the context.
+
+## Changes (0.4.1)
+
+- A new note deletes every older note this session wrote (by the session id in the file name), not only the one remembered in memory: a plugin reload forgot it, and the stale note was left for the next conversation to load.

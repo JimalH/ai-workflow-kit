@@ -226,11 +226,14 @@ const writeNote = async ($: EngineInterface, deadline: number): Promise<{ path: 
           : `the note could not be written (${r.reason})`,
     }
   }
-  const path = `${await notesDir($)}/${stamp(await $.clock.now())}-${(await $.session.id()).slice(0, 8)}.md`
+  const sid = (await $.session.id()).slice(0, 8)
+  const path = `${await notesDir($)}/${stamp(await $.clock.now())}-${sid}.md`
   await $.fs.write(path, r.text.trim() + '\n')
-  // A note this session wrote before is superseded.
-  const prev = (await read($, handoff)).path
-  if (prev && prev !== path) await deleteFile($, prev)
+  // A note this session wrote before is superseded: every file carrying this session's id,
+  // not only the one remembered here, since a plugin reload forgets it.
+  for (const n of await listNotes($)) {
+    if (n.path !== path && n.path.endsWith(`-${sid}.md`)) await deleteFile($, n.path)
+  }
   await update($, handoff, () => ({ status: 'saved', path, forExpiresAt: deadline }))
   return { path, text: r.text.trim() }
 }

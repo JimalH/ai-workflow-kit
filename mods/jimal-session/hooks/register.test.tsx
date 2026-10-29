@@ -49,7 +49,14 @@ async function session(
     if (opts.skill && path.endsWith('/skills/handoff/SKILL.md')) return { value: opts.skill } as never
     return (path in world.writes ? { value: world.writes[path] } : { value: '' }) as never
   })
-  on('fs.list', () => ({ value: [] }) as never)
+  // The files written so far, as the directory's listing.
+  on('fs.list', (_$, e) => {
+    const dir = (e as { path: string }).path.replace(/\\/g, '/').replace(/\/$/, '')
+    const entries = Object.keys(world.writes)
+      .filter(p => p.startsWith(`${dir}/`) && !p.slice(dir.length + 1).includes('/'))
+      .map(p => ({ kind: 'file', name: p.slice(dir.length + 1), mtimeMs: START }))
+    return { value: entries } as never
+  })
   on('settings.read', () => ({ value: opts.settings ?? {} }) as never)
   on('store.get', (_$, e) => ({ value: world.store[(e as { key: string }).key] }) as never)
   on('store.set', (_$, e) => {
@@ -367,4 +374,18 @@ test('handoff all: a request older than this session is left alone', async ($, o
   await answer($)
   await clock.advance(6000)
   expect(world.forks).toHaveLength(0)
+})
+
+test('a new note deletes every older one this session wrote, including one a plugin reload forgot', async ($, on) => {
+  const dir = 'C:/Users/me/.claude/handoffs/E--AI-workflow'
+  const { world } = await session($, on, {
+    fork: '## Goal\nShip the band.',
+    files: { [`${dir}/20261027-090000-abcdef12.md`]: '## Goal\nold', [`${dir}/20261027-100000-ffffffff.md`]: '## Goal\nanother session' },
+  })
+  await answer($)
+  await $.command.run({ command: 'handoff-now' } as never)
+  const left = Object.keys(world.writes).filter(p => p.startsWith(dir))
+  expect(left).toHaveLength(2)
+  expect(left).toContain(`${dir}/20261027-100000-ffffffff.md`)
+  expect(left.some(p => p.endsWith('-abcdef12.md') && !p.includes('20261027-090000'))).toBe(true)
 })
