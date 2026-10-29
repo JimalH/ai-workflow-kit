@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
+import { diffWords, markChanges } from './register'
 
 const START = Date.parse('2026-10-28T10:00:00Z')
 const MIN = 60 * 1000
@@ -13,15 +14,17 @@ type World = {
   compacts: string[]
   toasts: string[]
   store: Record<string, unknown>
+  completions: { system: string; prompt: string }[]
+  opens: string[]
 }
 
 // A session in E:\AI workflow on Windows, with the fork, files and commands recorded.
 async function session(
   $: Engine,
   on: On,
-  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string> } = {},
+  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; reply?: string | ((prompt: string) => string); fail?: boolean; delayMs?: number } = {},
 ) {
-  const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store } }
+  const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store }, completions: [], opens: [] }
   const clock = mock.clock(on, { now: START })
   mock.env(on, { USERPROFILE: 'C:\\Users\\me' })
   on('session.start', async () => ({ cwd: 'E:\\AI workflow' }) as never)
@@ -33,6 +36,19 @@ async function session(
     { kind: 'five_hour', percentUsed: 38, resetsAt: new Date(START + 3 * 60 * MIN - 1).toISOString() },
     { kind: 'seven_day', percentUsed: 20, resetsAt: new Date(START + (opts.weekLeftMs ?? 4 * 24 * 60 * MIN - 1)).toISOString() },
   ] } }) as never)
+  on('model.complete', async (_$, e) => {
+    const { system, prompt } = e as { system: string; prompt: string }
+    world.completions.push({ system, prompt })
+    // A slow model: the clock runs on while the call is out.
+    if (opts.delayMs) await clock.advance(opts.delayMs)
+    if (opts.fail) return { value: { isAnswered: false, reason: 'api-error', status: 529, error: 'overloaded', usage: {} } } as never
+    const text = typeof opts.reply === 'function' ? opts.reply(prompt) : (opts.reply ?? prompt)
+    return { value: { isAnswered: true, text, usage: {} } } as never
+  })
+  on('ui.open', (_$, e) => {
+    world.opens.push((e as { id: string }).id)
+    return { value: { isPlaced: true } } as never
+  })
   on('model.fork', (_$, e) => {
     world.forks.push((e as { prompt: string }).prompt)
     if (opts.forkReason) return { value: { isAnswered: false, reason: opts.forkReason } } as never
@@ -77,7 +93,10 @@ async function session(
   })
   on('turn.complete', async () => ({ text: '' }) as never)
   on('session.measure', () => ({ changed: ['context'] }) as never)
-  on('prompt.submit', (_$, e) => ({ text: (e as { text: string }).text }) as never)
+  on('prompt.submit', (_$, e) => {
+    const { text, context } = e as { text: string; context?: readonly string[] }
+    return (context ? { text, context } : { text }) as never
+  })
   on('ui.toast', (_$, e) => {
     world.toasts.push(String((e as { text: string }).text))
     return { value: undefined } as never
@@ -101,25 +120,22 @@ async function texts($: Engine): Promise<string[]> {
   return [...found.map(t => t.text), ...buttons.map(b => String(b.props.label))]
 }
 
-// A switch's state as drawn on the desktop, by its dot; null when hidden.
-async function frameOf($: Engine, key: string): Promise<unknown> {
+// A switch's state, the label of its On/Off button in the unfolded Details; null when not drawn.
+async function stateOf($: Engine, key: string): Promise<unknown> {
   const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
-  const slot = await ui.find({ key: `${key}-slot` })
+  const found = await ui.find({ key })
   await ui.unmount()
-  // The dot leads the slot: green on, grey off; a hidden switch draws no slot.
-  const dot = (slot?.children ?? []).find((c): c is { type: string; props: Record<string, unknown> } => typeof c === 'object' && c !== null && (c as { type?: string }).type === 'Text')
-  return slot ? (dot?.props.color === '#4caf6e' ? 'on' : 'off') : null
+  return found ? String(found.props.label).toLowerCase() : null
 }
 
-async function slotWidth($: Engine, key: string): Promise<unknown> {
-  const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
-  const found = await ui.find({ key: `${key}-slot` })
-  await ui.unmount()
-  return found?.props.minWidth
-}
-
+// Presses a band button; a switch (in the Details) unfolds them first when they are folded.
 async function press($: Engine, key: string) {
-  const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
+  let ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
+  if (key !== 'details' && !(await ui.find({ key }))) {
+    await ui.press({ key: 'details' })
+    await ui.unmount()
+    ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
+  }
   await ui.press({ key })
   await ui.unmount()
 }
@@ -156,47 +172,57 @@ test('band: the week shows hours once less than a day is left', async ($, on) =>
   expect(await texts($)).toContain('19h')
 })
 
-test('band: a switch has a grey dot while off and a green one while on, and hides the other', async ($, on) => {
-  await session($, on)
-  expect(await frameOf($, 'keep-warm')).toBe('off')
-  expect(await frameOf($, 'auto-handoff')).toBe('off')
+test('band: Details folded draws no switch; unfolded, each is an On/Off button, and Keep warm and Auto-handoff exclude each other', async ($, on) => {
+  const { world } = await session($, on)
+  expect(await stateOf($, 'keep-warm')).toBeNull()
+  expect(await texts($)).toContain('Details ▾')
+
+  await press($, 'details')
+  expect(await stateOf($, 'keep-warm')).toBe('off')
+  expect(await stateOf($, 'auto-handoff')).toBe('off')
+  expect(await stateOf($, 'fix-english')).toBe('off')
+  expect(await stateOf($, 'shape-prompt')).toBe('off')
+  expect(world.store.details).toBe(true)
 
   await press($, 'keep-warm')
-  expect(await frameOf($, 'keep-warm')).toBe('on')
-  expect(await frameOf($, 'auto-handoff')).toBeNull()
-  // The hidden switch takes no room.
-  expect(await slotWidth($, 'auto-handoff')).toBeUndefined()
-
-  await press($, 'keep-warm')
+  expect(await stateOf($, 'keep-warm')).toBe('on')
+  expect(await stateOf($, 'auto-handoff')).toBe('off')
   await press($, 'auto-handoff')
-  expect(await frameOf($, 'auto-handoff')).toBe('on')
-  expect(await frameOf($, 'keep-warm')).toBeNull()
+  expect(await stateOf($, 'auto-handoff')).toBe('on')
+  expect(await stateOf($, 'keep-warm')).toBe('off')
+
+  // The prompt switches are kept in the store; In reply and In pane sit under Fix English.
+  await press($, 'fix-english')
+  expect(world.store.prompt).toEqual({ fixEnglish: true, inReply: true, inPane: true, shapePrompt: false })
+  await press($, 'in-pane')
+  expect(world.store.prompt).toEqual({ fixEnglish: true, inReply: true, inPane: false, shapePrompt: false })
+
+  await press($, 'details')
+  expect(await stateOf($, 'keep-warm')).toBeNull()
+  expect(world.store.details).toBe(false)
 })
 
 test('keep warm: refreshes the cache 59 minutes after the last answer', async ($, on) => {
   const { clock, world } = await session($, on)
   await answer($)
-  const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
-  await ui.press({ key: 'keep-warm' })
-  await ui.unmount()
+  await press($, 'keep-warm')
 
   await clock.advance(58 * MIN)
   expect(world.forks).toHaveLength(0)
   await clock.advance(1 * MIN + 2000)
   expect(world.forks).toHaveLength(1)
-  // Refreshed: a full hour again (no minutes shown above half an hour), and auto-handoff is hidden.
+  // Refreshed: a full hour again (no minutes shown above half an hour); the middle lists the switch.
   const shown = await texts($)
   expect(shown).toContain('cache warm')
-  expect(await frameOf($, 'keep-warm')).toBe('on')
-  expect(await frameOf($, 'auto-handoff')).toBeNull()
+  expect(shown.some(t => t.includes('Keep warm'))).toBe(true)
+  expect(await stateOf($, 'keep-warm')).toBe('on')
+  expect(await stateOf($, 'auto-handoff')).toBe('off')
 })
 
 test('auto-handoff: writes a note in the last minute; a compaction refused is said, and the note is kept', async ($, on) => {
   const { clock, world } = await session($, on, { fork: '## Goal\nShip the band.' })
   await answer($)
-  const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
-  await ui.press({ key: 'auto-handoff' })
-  await ui.unmount()
+  await press($, 'auto-handoff')
 
   await clock.advance(59 * MIN + 2000)
   const paths = Object.keys(world.writes)
@@ -206,7 +232,7 @@ test('auto-handoff: writes a note in the last minute; a compaction refused is sa
 
   // The kit has no transcript for a compaction to read, so it refuses one: the band and a
   // toast say the note was not applied (the compaction's answer is tested below).
-  expect(await texts($)).toContain('note not applied')
+  expect((await texts($)).some(t => t.includes('note not applied'))).toBe(true)
   expect(world.toasts.some(t => t.startsWith('Handover note saved, but not applied:'))).toBe(true)
 
   // Not applied, the note is not used up by the next prompt: kept for a new conversation.
@@ -256,12 +282,12 @@ test('compaction: the marked one is answered with the note, any other goes on', 
   expect(world.compacts).toEqual(['keep the API notes'])
 })
 
-test('band: a narrow window drops the figures one by one, the switches stay', async ($, on) => {
+test('band: a narrow window drops the figures one by one, the buttons stay', async ($, on) => {
   await session($, on)
   const shownAt = async (bodyColumns: number) => {
     const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND.props, bodyColumns } as never })
     const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
-    const switches = await ui.find({ key: 'keep-warm' })
+    const switches = await ui.find({ key: 'details' })
     await ui.unmount()
     return { texts, hasSwitches: switches !== undefined }
   }
@@ -270,27 +296,42 @@ test('band: a narrow window drops the figures one by one, the switches stay', as
   expect(wide.texts).toContain('4d')
   expect(wide.hasSwitches).toBe(true)
 
-  const medium = await shownAt(75)
+  const medium = await shownAt(60)
   expect(medium.texts).toContain('3h')
   expect(medium.texts).not.toContain('4d')
   expect(medium.hasSwitches).toBe(true)
 
-  const narrow = await shownAt(55)
+  const narrow = await shownAt(50)
   expect(narrow.texts).not.toContain('3h')
   expect(narrow.hasSwitches).toBe(true)
 })
 
-test('band: the room a hidden switch frees goes to the figures', async ($, on) => {
-  await session($, on)
-  const texts = async () => {
-    const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND.props, bodyColumns: 75 } as never })
-    const found = (await ui.findAll({ type: 'Text' })).map(t => t.text)
-    await ui.unmount()
-    return found
-  }
-  expect(await texts()).not.toContain('4d')
+test('band: the middle lists the switches that are on, scrolled when long; a feature at work shows there instead', async ($, on) => {
+  const { clock } = await session($, on, { delayMs: 2500, store: { prompt: { fixEnglish: true, inReply: true, inPane: true, shapePrompt: false } } })
+  const middle = async () => (await texts($)).filter(t => t.includes('●') || t.startsWith('◷') || /^[A-Za-z ]+$/.test(t))
   await press($, 'auto-handoff')
-  expect(await texts()).toContain('4d')
+  const shown = await middle()
+  expect(shown.join('')).toContain('Auto-handoff')
+  expect(shown.join('')).toContain('Fix English')
+  expect(shown.join('')).toContain('In pane')
+
+  // The list is longer than the middle: it moves one cell a tick.
+  const window = async () => {
+    const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
+    const box = await ui.find({ key: 'middle' })
+    await ui.unmount()
+    return JSON.stringify(box)
+  }
+  const before = await window()
+  await clock.advance(1000)
+  expect(await window()).not.toBe(before)
+
+  // While Fix English works, its own line stands in the middle, counted.
+  const pending = $.prompt.submit({ text: 'please fix teh header of the page' } as never)
+  const working = await texts($)
+  expect(working.some(t => /^◷ Fix English · checking… \ds$/.test(t))).toBe(true)
+  await pending
+  expect((await texts($)).some(t => t.startsWith('◷'))).toBe(false)
 })
 
 test('usage: an empty reading keeps the last one', async ($, on) => {
@@ -388,4 +429,80 @@ test('a new note deletes every older one this session wrote, including one a plu
   expect(left).toHaveLength(2)
   expect(left).toContain(`${dir}/20261027-100000-ffffffff.md`)
   expect(left.some(p => p.endsWith('-abcdef12.md') && !p.includes('20261027-090000'))).toBe(true)
+})
+
+const submit = ($: Engine, text: string) => $.prompt.submit({ text } as never) as Promise<{ text?: string; context?: readonly string[]; drop?: string }>
+const PROMPT_ON = { fixEnglish: false, inReply: true, inPane: true, shapePrompt: false }
+
+test('diff: a misspelt word is removed and its correction added; spacing and lines stay', () => {
+  expect(markChanges(diffWords('fix the typo in teh header', 'fix the typo in the header'))).toBe('fix the typo in ~~teh~~ **the** header')
+  expect(markChanges(diffWords('it dont work', 'it does not work'))).toBe('it ~~dont~~ **does not** work')
+  expect(markChanges(diffWords('add tests\nthen ship', 'add tests\nthen ship it'))).toBe('add tests\nthen ship **it**')
+  expect(diffWords('same text', 'same text')).toEqual([{ kind: 'same', text: 'same text' }])
+})
+
+test('fix English: the corrections ride as context and open the pane, coloured; a right prompt does neither', async ($, on) => {
+  const { world } = await session($, on, { reply: p => p.replace('teh', 'the'), store: { prompt: { ...PROMPT_ON, fixEnglish: true } } })
+  const out = await submit($, 'please fix teh header of the page')
+  expect(out.text).toBe('please fix teh header of the page')
+  expect(out.context?.[0]).toContain('~~teh~~ **the**')
+  expect(out.context?.[0]).toContain('**Prompt check**')
+  expect(world.opens).toEqual(['jimal-session-check'])
+  expect(world.completions[0]?.system).toMatch(/copy editor/)
+  const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', component: 'Pane', requestId: 'jimal-session-check', props: {} as never })
+  const pane = (await ui.findAll({ type: 'Text' })).map(t => ({ text: t.text, color: t.props.color, strikethrough: t.props.strikethrough }))
+  await ui.unmount()
+  expect(pane.find(t => t.text === 'teh')).toMatchObject({ color: '#e0846b', strikethrough: true })
+  expect(pane.find(t => t.text === 'the')).toMatchObject({ color: '#4caf6e' })
+
+  const right = await submit($, 'please fix the header of the page')
+  expect(right.context).toBeUndefined()
+  expect(world.opens).toHaveLength(1)
+})
+
+test('fix English: In reply off keeps the context out, In pane off keeps the pane shut; both off, no call; a Chinese or short prompt is not checked', async ($, on) => {
+  const { world } = await session($, on, { reply: p => p.replace('teh', 'the'), store: { prompt: { ...PROMPT_ON, fixEnglish: true, inReply: false } } })
+  const out = await submit($, 'please fix teh header of the page')
+  expect(out.context).toBeUndefined()
+  expect(world.opens).toEqual(['jimal-session-check'])
+  await press($, 'in-pane')
+  await submit($, 'please fix teh header of the page')
+  await submit($, '把这个标题改一下')
+  await submit($, 'fix header')
+  expect(world.completions).toHaveLength(1)
+})
+
+test('fix English: a failed call lets the prompt through with a toast', async ($, on) => {
+  const { world } = await session($, on, { fail: true, store: { prompt: { ...PROMPT_ON, fixEnglish: true } } })
+  const out = await submit($, 'please fix the header of the page')
+  expect(out.text).toBe('please fix the header of the page')
+  expect(out.context).toBeUndefined()
+  expect(world.toasts[0]).toMatch(/^Fix English: API error 529/)
+})
+
+test('shape prompt: the structured version goes as the prompt, the original beside it; a shaped prompt is not proofread again', async ($, on) => {
+  const { world } = await session($, on, { reply: 'Goal: a faster page.\nDeliverable: the change.', store: { prompt: { ...PROMPT_ON, fixEnglish: true, shapePrompt: true } } })
+  const out = await submit($, 'make teh page faster, it is slow')
+  expect(out.drop).toBeUndefined()
+  expect(out.text).toBe('Goal: a faster page.\nDeliverable: the change.')
+  expect(out.context?.[0]).toContain('make teh page faster, it is slow')
+  expect(world.completions).toHaveLength(1)
+  expect(world.completions[0]?.system).toMatch(/restructure a prompt/)
+})
+
+test('shape prompt: a Chinese prompt is shaped too; a failed call sends it as typed with a toast in Chinese; a few characters go as they are', async ($, on) => {
+  const { world } = await session($, on, { fail: true, store: { prompt: { ...PROMPT_ON, shapePrompt: true } } })
+  const out = await submit($, '帮我把页面改快一点')
+  expect(out.text).toBe('帮我把页面改快一点')
+  expect(out.context).toBeUndefined()
+  expect(world.toasts[0]).toMatch(/^整理失败/)
+  await submit($, '继续')
+  expect(world.completions).toHaveLength(1)
+})
+
+test('prompt features: a command passes untouched, and a loaded handover note is not shaped', async ($, on) => {
+  const dir = 'C:/Users/me/.claude/handoffs/E--AI-workflow'
+  const { world } = await session($, on, { reply: 'Goal: x', store: { prompt: { ...PROMPT_ON, shapePrompt: true } }, files: { [`${dir}/20261027-100000-ffffffff.md`]: '## Goal\nShip it.' } })
+  await $.prompt.submit({ text: '/compact', command: { name: 'compact' } } as never)
+  expect(world.completions).toHaveLength(0)
 })

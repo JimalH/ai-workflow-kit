@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionMessage } from 'claude-code'
 
-import type { Handoff, RateWindow } from '../types'
+import type { Check, Handoff, PromptSwitches, RateWindow, Segment } from '../types'
 
 const expiresAt = atom({ plugin: 'jimal-session', key: 'expiresAt' } as const, null as number | null)
 const isBusy = atom({ plugin: 'jimal-session', key: 'isBusy' } as const, false)
@@ -12,6 +12,16 @@ const rateLimits = atom({ plugin: 'jimal-session', key: 'rateLimits' } as const,
 const handoff = atom({ plugin: 'jimal-session', key: 'handoff' } as const, { status: 'idle' } as Handoff)
 // The band asks once whether to turn Claude Code's idle compaction off (see decideIdle).
 const idleAsk = atom({ plugin: 'jimal-session', key: 'idleAsk' } as const, false)
+// The prompt switches (Fix English, its two sub-options, Shape prompt), kept in the store.
+const promptSwitches = atom({ plugin: 'jimal-session', key: 'promptSwitches' } as const, { fixEnglish: false, inReply: true, inPane: true, shapePrompt: false } as PromptSwitches)
+// What a prompt feature is doing right now, counted in seconds; '' when idle.
+const promptStatus = atom({ plugin: 'jimal-session', key: 'promptStatus' } as const, '')
+// The last corrections Fix English found; null before any.
+const check = atom({ plugin: 'jimal-session', key: 'check' } as const, null as Check | null)
+// The Details boxes are unfolded under the band's row.
+const isDetailsOpen = atom({ plugin: 'jimal-session', key: 'isDetailsOpen' } as const, false)
+// How far the list of switches that are on has scrolled, in cells; advanced by the tick.
+const scrollAt = atom({ plugin: 'jimal-session', key: 'scrollAt' } as const, 0)
 
 // Claude Code writes the main thread's prompt cache with a 1-hour lifetime on a subscription.
 const CACHE_TTL_MS = 60 * 60 * 1000
@@ -39,11 +49,13 @@ const GREEN = '#4caf6e'
 const AMBER = '#e2a94e'
 const RED = '#e0846b'
 const GREY = '#8a8f8c'
-// Each switch's slot, in cells: its dot, a gap, the label and a little air.
-const KEEP_WARM_W = 'Keep warm'.length + 4
-const AUTO_HANDOFF_W = 'Auto-handoff'.length + 4
-// A plain button's slot: its label and a little air.
+// A plain button's slot, in cells: its label and a little air.
 const HANDOFF_ALL_W = 'Handoff all'.length + 2
+const DETAILS_W = 'Details ▾'.length + 2
+// The middle of the row (what runs now, or the switches on), in cells.
+const MIDDLE_W = 36
+// A Details box, in cells, border included.
+const BOX_W = 30
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -321,6 +333,7 @@ const answerRequest = async ($: EngineInterface, at: number): Promise<void> => {
 const tick = async ($: EngineInterface): Promise<void> => {
   const at = await $.clock.now()
   await update($, now, () => at)
+  await update($, scrollAt, v => v + 1)
   const deadline = await read($, expiresAt)
   if (deadline === null || (await read($, isBusy)) || isWarming) return
   await answerRequest($, at)
@@ -346,6 +359,184 @@ const keepLimits = async ($: EngineInterface, limits: readonly RateWindow[]): Pr
 
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Prompt features (from jimal-prompt).
+//
+// Fix English: an English prompt is proofread by a small model while the submission waits
+// (a second or two, counted in the band); what changed is marked word by word and shown in
+// the reply's first lines (`In reply`: the marks ride beside the prompt as context, for a
+// remote screen that shows the transcript alone) and in a coloured `Prompt check` pane
+// (`In pane`), each on its own switch under Fix English.
+//
+// Shape prompt: the prompt is restructured by the small model (goal, context, constraints,
+// deliverable, done when) while the submission waits, and the structured version goes to
+// the main model as the prompt, the original wording beside it as context. A shaped prompt
+// is not proofread again: the shaping corrects it.
+// ---------------------------------------------------------------------------
+
+const PROMPT_STORE_KEY = 'prompt'
+const DETAILS_STORE_KEY = 'details'
+const PANE = 'jimal-session-check'
+const SMALL_MODEL = 'haiku'
+// An English prompt shorter than this is sent as it is: a word or two has nothing to fix.
+const MIN_WORDS = 4
+// A prompt shorter than this (characters) is not worth shaping.
+const MIN_SHAPE_CHARS = 6
+
+// English: Latin letters, no CJK script, and at least MIN_WORDS words.
+const isEnglish = (text: string) =>
+  !/[぀-ヿ㐀-鿿가-힯]/.test(text) && /[A-Za-z]/.test(text) && text.trim().split(/\s+/).length >= MIN_WORDS
+
+const FIX_SYSTEM = [
+  'You are a copy editor. Correct the spelling, grammar and punctuation of the text you are given.',
+  'Keep its meaning, wording, tone, line breaks, code, file paths, quoted strings and formatting.',
+  'Change nothing that is already correct. Do not answer it, expand it or comment on it.',
+  'Reply with the corrected text only.',
+].join(' ')
+
+const SHAPE_SYSTEM = [
+  'You restructure a prompt written for an AI coding assistant so it is clear, ordered and complete.',
+  'Keep every requirement, fact, file name, piece of code and constraint the writer gave; add nothing they did not say; do not answer the prompt.',
+  'Correct spelling and grammar as you go.',
+  'Write in the language of the original; for a Chinese prompt use the headings 目标 / 背景 / 约束 / 产出 / 完成标准.',
+  'Reply with the restructured prompt only, no preamble, in this shape, leaving out a section with nothing in it:',
+  '',
+  'Goal: one sentence.',
+  'Context: what is known (files, state, what was tried).',
+  'Constraints: must / must not.',
+  'Deliverable: what to produce and in what form.',
+  'Done when: how the result is checked.',
+].join('\n')
+
+// Word diff: the corrected text as runs kept, removed and added, so the pane can colour them
+// and the transcript can mark them. Tokens are words and the whitespace between.
+const tokens = (text: string): string[] => text.split(/(\s+)/).filter(t => t !== '')
+
+export const diffWords = (before: string, after: string): Segment[] => {
+  const a = tokens(before)
+  const b = tokens(after)
+  const n = a.length
+  const m = b.length
+  // LCS table, bottom-up.
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0))
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i]![j] = a[i] === b[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!)
+    }
+  }
+  const out: Segment[] = []
+  const push = (kind: Segment['kind'], text: string) => {
+    if (!text) return
+    const last = out[out.length - 1]
+    if (last && last.kind === kind) last.text += text
+    else out.push({ kind, text })
+  }
+  let del: string[] = []
+  let ins: string[] = []
+  const flush = () => {
+    const d = del.join('')
+    const s = ins.join('')
+    if (d.trim() || s.trim()) {
+      // The whitespace a change began or ended with keeps the corrected text's spacing.
+      const around = s || d
+      push('same', around.match(/^\s+/)?.[0] ?? '')
+      push('del', d.trim())
+      if (d.trim() && s.trim()) push('same', ' ')
+      push('ins', s.trim())
+      push('same', around.match(/\s+$/)?.[0] ?? '')
+    }
+    del = []
+    ins = []
+  }
+  let i = 0
+  let j = 0
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      if (/^\s+$/.test(a[i]!) && (del.length || ins.length)) {
+        // Whitespace between two changed words stays inside the change.
+        del.push(a[i]!)
+        ins.push(b[j]!)
+      } else {
+        flush()
+        push('same', a[i]!)
+      }
+      i++
+      j++
+    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
+      del.push(a[i]!)
+      i++
+    } else {
+      ins.push(b[j]!)
+      j++
+    }
+  }
+  while (i < n) del.push(a[i++]!)
+  while (j < m) ins.push(b[j++]!)
+  flush()
+  return out
+}
+
+// The segments as Markdown: removed words struck through, added ones bold.
+export const markChanges = (segments: Segment[]): string =>
+  segments
+    .map(s => (s.kind === 'del' ? `~~${s.text}~~` : s.kind === 'ins' ? `**${s.text}**` : s.text))
+    .join('')
+    .trim()
+
+const sameWords = (x: string, y: string) => x.replace(/\s+/g, ' ').trim() === y.replace(/\s+/g, ' ').trim()
+
+type Completion = Awaited<ReturnType<EngineInterface['model']['complete']>>
+
+const reasonOf = (r: Completion): string =>
+  r.isAnswered ? 'empty reply' : r.reason === 'api-error' ? `API error${r.status ? ` ${r.status}` : ''} (${r.error})` : r.reason
+
+// A small-model call, counted in the band while it runs so a slow one is seen to be alive.
+const counted = async <T,>($: EngineInterface, label: string, work: () => Promise<T>): Promise<T> => {
+  const from = await $.clock.now()
+  await update($, promptStatus, () => `${label} 0s`)
+  const tick = $.clock.every(1000, () => {
+    void $.clock.now().then(at => update($, promptStatus, () => `${label} ${Math.round((at - from) / 1000)}s`))
+  })
+  try {
+    return await work()
+  } finally {
+    tick.cancel()
+    await update($, promptStatus, () => '')
+  }
+}
+
+// The corrections as segments, or null when the text was already right or the call failed.
+const proofread = async ($: EngineInterface, text: string): Promise<Segment[] | null> =>
+  counted($, '◷ Fix English · checking…', async () => {
+    const r = await $.model.complete({ model: SMALL_MODEL, system: FIX_SYSTEM, prompt: text, maxTokens: 2048, effort: 'low' })
+    if (!r.isAnswered || !r.text.trim()) {
+      $.ui.toast(`Fix English: ${reasonOf(r)}; the prompt went as typed.`)
+      return null
+    }
+    const fixed = r.text.trim()
+    return sameWords(fixed, text) ? null : diffWords(text.trim(), fixed)
+  })
+
+// The restructured prompt, or null when the call failed.
+const shapeText = async ($: EngineInterface, text: string): Promise<string | null> =>
+  counted($, isChinese(text) ? '◷ Shape prompt · 整理中…' : '◷ Shape prompt · shaping…', async () => {
+    const r = await $.model.complete({ model: SMALL_MODEL, system: SHAPE_SYSTEM, prompt: text, maxTokens: 2048 })
+    if (r.isAnswered && r.text.trim()) return r.text.trim()
+    $.ui.toast(isChinese(text) ? `整理失败：${reasonOf(r)}，已按原文发出。` : `Shape prompt: ${reasonOf(r)}; the prompt went as typed.`)
+    return null
+  })
+
+const fixContext = (marked: string) =>
+  [
+    '[jimal-session] The prompt above was written in English and has been proofread; the corrected version follows, with each change marked (~~removed~~ **added**).',
+    'Open your reply with the heading `**Prompt check**`, then the corrected version exactly as given below, then a line holding only `---`, and only then answer the prompt. Do not comment on the corrections.',
+    '',
+    marked,
+  ].join('\n')
+
+const shapeContext = (original: string) =>
+  ['[jimal-session] The prompt above was restructured by a small model from what the person typed, which follows; where the two differ, what they typed is what they meant.', '', original].join('\n')
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -353,6 +544,19 @@ export const register: Register = on => {
     await keepLimits($, limits)
     await pruneNotes($).catch(() => undefined)
     startedAt = await $.clock.now()
+    // The prompt switches and the Details fold come back from the store.
+    const keptPrompt = (await $.store.get(PROMPT_STORE_KEY).catch(() => undefined)) as Partial<PromptSwitches> | undefined
+    if (keptPrompt && typeof keptPrompt === 'object') {
+      await update($, promptSwitches, () => ({
+        fixEnglish: keptPrompt.fixEnglish === true,
+        inReply: keptPrompt.inReply !== false,
+        inPane: keptPrompt.inPane !== false,
+        shapePrompt: keptPrompt.shapePrompt === true,
+      }))
+    }
+    const keptDetails = await $.store.get(DETAILS_STORE_KEY).catch(() => undefined)
+    await update($, isDetailsOpen, () => keptDetails === true)
+    await $.command.register({ name: 'prompt-check', description: 'Open the Prompt check pane with the last corrections Fix English found' }).catch(() => undefined)
     // Asked once per machine: the answer is kept in the plugin store; a setting already off needs no question.
     const settings = (await $.settings.read().catch(() => ({}))) as Record<string, unknown>
     const choice = await $.store.get('idleCompaction').catch(() => undefined)
@@ -428,6 +632,31 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     if (e.command || e.isMeta) return next(e)
+    // Fix English and Shape prompt on the prompt as typed (see the helpers above); a note
+    // loaded for a fresh conversation goes as it is.
+    const withPrompt = async (p: typeof e) => {
+      const e = p
+      if (e.command || e.isMeta || e.origin?.kind === 'plugin') return next(e)
+      const sw = await read($, promptSwitches)
+      const text = e.text
+
+      // Shaped: the structured version is the prompt, the original rides beside it.
+      if (sw.shapePrompt && text.trim().length >= MIN_SHAPE_CHARS) {
+        const shaped = await shapeText($, text).catch(() => null)
+        if (shaped) return next({ ...e, text: shaped, context: [...(e.context ?? []), shapeContext(text)] })
+        return next(e)
+      }
+
+      if (sw.fixEnglish && isEnglish(text) && (sw.inReply || sw.inPane)) {
+        const segments = await proofread($, text).catch(() => null)
+        if (segments) {
+          await update($, check, () => ({ segments }))
+          if (sw.inPane) await $.ui.open({ id: PANE, title: 'Prompt check' }).catch(() => undefined)
+          if (sw.inReply) return next({ ...e, context: [...(e.context ?? []), fixContext(markChanges(segments))] })
+        }
+      }
+      return next(e)
+    }
     const ho = await read($, handoff)
 
     // This session's note stands in for the old context once applied (writeHandoff): the
@@ -436,7 +665,7 @@ export const register: Register = on => {
     if (ho.path) {
       if (ho.isApplied) await deleteFile($, ho.path)
       await update($, handoff, () => ({ status: 'idle' }))
-      return next(e)
+      return withPrompt(e)
     }
 
     // A fresh conversation in this project starts from the newest note left for it.
@@ -449,7 +678,42 @@ export const register: Register = on => {
         return next({ ...e, text: `${noteMessage(note)}\n\n---\n\n${e.text}` })
       }
     }
-    return next(e)
+    return withPrompt(e)
+  })
+
+  on('command.run', { command: 'prompt-check' }, async $ => {
+    const opened = await $.ui.open({ id: PANE, title: 'Prompt check' })
+    return { text: opened.isPlaced ? 'Prompt check pane opened.' : 'No surface here draws a pane.' }
+  })
+
+
+  // The last corrections, coloured: removed words red and struck through, added ones green.
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const last = await read($, check)
+    return (
+      <Box flexDirection="column" paddingX={1}>
+        {last === null ? (
+          <Text dimColor>No corrections yet: turn Fix English on and send an English prompt.</Text>
+        ) : (
+          <Text wrap="wrap">
+            {last.segments.map((s, i) =>
+              s.kind === 'del' ? (
+                <Text key={`s${i}`} color={RED} strikethrough>
+                  {s.text}
+                </Text>
+              ) : s.kind === 'ins' ? (
+                <Text key={`s${i}`} color={GREEN} bold>
+                  {s.text}
+                </Text>
+              ) : (
+                <Text key={`s${i}`}>{s.text}</Text>
+              ),
+            )}
+          </Text>
+        )}
+      </Box>
+    )
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -468,52 +732,82 @@ export const register: Register = on => {
     const isWarm = await read($, keepWarm)
     const isAuto = await read($, autoHandoff)
     const ho = await read($, handoff)
+    const sw = await read($, promptSwitches)
+    const isOpen = await read($, isDetailsOpen)
     const color = cacheColor(left, isWorking)
-
-    // A switch: a dot, green while on and grey while off, and its name as a plain (frameless)
-    // button, dim while off (the dot sits outside: a coloured mark inside a button is not
-    // drawn). A hidden switch takes no room, so the figures get it; Auto-handoff sits at the
-    // right end and never moves.
-    const toggle = (key: string, label: string, width: number, isOn: boolean, isShown: boolean, onPress: () => unknown) =>
-      isShown ? (
-        <Box key={`${key}-slot`} minWidth={width} flexShrink={0} flexDirection="row" alignItems="center" justifyContent="flex-end">
-          <Text color={isOn ? GREEN : GREY}>●</Text>
-          <Button key={key} label={label} plain dimColor={!isOn} onPress={onPress} />
-        </Box>
-      ) : null
 
     const note =
       ho.status === 'writing' ? 'writing note…' : ho.status === 'saved' ? (ho.isApplied ? 'note applied' : 'note saved') : ho.status === 'unapplied' ? 'note not applied' : ho.status === 'failed' ? 'note failed' : ''
+    // The middle of the row: what a feature is doing now, else the switches that are on,
+    // scrolled by the tick when they do not fit.
+    const working = (await read($, promptStatus)) || (note ? `◷ Handoff · ${note}` : '')
+    const onList = [
+      ...(isWarm ? ['Keep warm'] : []),
+      ...(isAuto ? ['Auto-handoff'] : []),
+      ...(sw.fixEnglish ? ['Fix English', ...(sw.inReply ? ['In reply'] : []), ...(sw.inPane ? ['In pane'] : [])] : []),
+      ...(sw.shapePrompt ? ['Shape prompt'] : []),
+    ]
+    const listText = onList.map(n => `● ${n}`).join('  ')
 
     const cache = cacheText(left, isWorking)
     const sessionText = `${timeLeft(session, at, false)} ${percentLeft(session)}`
     const weekText = `${timeLeft(week, at, true)} ${percentLeft(week)}`
 
-    // The switches keep the right end, and the room the shown ones leave goes to the figures;
-    // when it is short, the figures give way one at a time: the note, then the week, then the 5-hour window, then the
-    // cache line shrinks to its minutes (in cells: dot, texts, bars and gaps, padding).
-    const switchesW = HANDOFF_ALL_W + 2 + (isAuto ? 0 : KEEP_WARM_W) + (isWarm ? 0 : AUTO_HANDOFF_W) + (isAuto || isWarm ? 0 : 2)
-    const room = e.props.bodyColumns - (switchesW + 4)
+    // The buttons keep the right end; when the row is short, the figures give way one at a
+    // time: the middle, then the week, then the 5-hour window, then the cache line shrinks to
+    // its minutes (in cells: dot, texts, bars and gaps, padding).
+    const buttonsW = HANDOFF_ALL_W + 2 + DETAILS_W
+    const room = e.props.bodyColumns - (buttonsW + 4)
     const width = (parts: string[]) => parts.reduce((w, p) => w + p.length + 3, 0)
     const cacheShort = cache.replace(/^cache (warm )?/, '') || cache
+    const middleText = working || listText
+    const middleW = Math.min(MIDDLE_W, middleText.length)
     const plan = [
-      { note: true, week: true, session: true, cache },
-      { note: false, week: true, session: true, cache },
-      { note: false, week: false, session: true, cache },
-      { note: false, week: false, session: false, cache },
-      { note: false, week: false, session: false, cache: cacheShort },
+      { middle: true, week: true, session: true, cache },
+      { middle: false, week: true, session: true, cache },
+      { middle: false, week: false, session: true, cache },
+      { middle: false, week: false, session: false, cache },
+      { middle: false, week: false, session: false, cache: cacheShort },
     ]
     const shown =
       plan.find(p =>
-        width([`● ${p.cache}`, ...(p.session && session ? [sessionText] : []), ...(p.week && week ? [weekText] : []), ...(p.note && note && !isWarm ? [note] : [])]) <= room,
+        width([`● ${p.cache}`, ...(p.session && session ? [sessionText] : []), ...(p.week && week ? [weekText] : []), ...(p.middle && middleText ? ['x'.repeat(middleW)] : [])]) <= room,
       ) ?? plan[plan.length - 1]!
-    const shownNote = shown.note && note && !isWarm ? note : ''
+    const showMiddle = shown.middle && middleText !== ''
     // A window with no reading yet is left out, rather than shown as dashes.
     const showSession = shown.session && session !== undefined
     const showWeek = shown.week && week !== undefined
 
-    // One line of plain figures between bars: `● cache warm 24m | 1h 95% · 13h 18%`; past
-    // the estimate, the line is cut at its end rather than move the switches.
+    // The list of switches on, scrolled: a window of MIDDLE_W cells over the list, a gap,
+    // and the list again, moved one cell per tick; a list that fits stands still.
+    const scrolled = await (async () => {
+      if (!showMiddle || working) return listText
+      if (listText.length <= MIDDLE_W) return listText
+      const loop = `${listText}   `
+      const start = (await read($, scrollAt)) % loop.length
+      return (loop + loop).slice(start, start + MIDDLE_W)
+    })()
+    // Dots green, names plain: the window's text split at its dots.
+    const middleParts = scrolled.split('●')
+    const middleBox = showMiddle ? (
+      <Box key="middle" flexDirection="row" alignItems="center" flexShrink={0} width={middleW} overflow="hidden">
+        {working ? (
+          <Text color={AMBER} wrap="truncate-end">{working}</Text>
+        ) : (
+          <Text wrap="truncate-end">
+            {middleParts.map((part, i) => (
+              <Text key={`m${i}`}>
+                {i > 0 ? <Text color={GREEN}>●</Text> : null}
+                {part}
+              </Text>
+            ))}
+          </Text>
+        )}
+      </Box>
+    ) : null
+
+    // One line of plain figures between bars: `● cache warm 24m | 1h 95% · 13h 18% | ● Auto-handoff`;
+    // past the estimate, the line is cut at its end rather than move the buttons.
     const figures = (
       <Box key="figures" flexDirection="row" alignItems="center" columnGap={2} flexShrink={1} minWidth={0} overflow="hidden">
         <Box flexDirection="row" columnGap={1} flexShrink={0}>
@@ -531,20 +825,62 @@ export const register: Register = on => {
             {showWeek ? <Text color={usageColor(week)} dimColor={!usageColor(week)}>{percentLeft(week)}</Text> : null}
           </Box>
         ) : null}
-        {shownNote ? <Text dimColor>|</Text> : null}
-        {shownNote ? <Text dimColor wrap="truncate-end">{shownNote}</Text> : null}
+        {showMiddle ? <Text dimColor>|</Text> : null}
+        {middleBox}
       </Box>
     )
-    // `Handoff all` first, then the two switches, which exclude each other: while one is on, the other is hidden.
-    const switches = (
-      <Box key="switches" flexDirection="row" alignItems="center" columnGap={2} flexShrink={0}>
-        <Box key="handoff-all-slot" minWidth={HANDOFF_ALL_W} flexShrink={0} flexDirection="row" alignItems="center" justifyContent="flex-end">
-          <Button key="handoff-all" label="Handoff all" plain onPress={() => void requestHandoffAll($).catch(() => undefined)} />
-        </Box>
-        {toggle('keep-warm', 'Keep warm', KEEP_WARM_W, isWarm, !isAuto, () => update($, keepWarm, v => !v))}
-        {toggle('auto-handoff', 'Auto-handoff', AUTO_HANDOFF_W, isAuto, !isWarm, () => update($, autoHandoff, v => !v))}
+
+    const setDetails = async (open: boolean) => {
+      await update($, isDetailsOpen, () => open)
+      await $.store.set(DETAILS_STORE_KEY, open).catch(() => undefined)
+    }
+    const buttons = (
+      <Box key="buttons" flexDirection="row" alignItems="center" columnGap={2} flexShrink={0}>
+        <Button key="handoff-all" label="Handoff all" plain onPress={() => void requestHandoffAll($).catch(() => undefined)} />
+        <Button key="details" label={`Details ${isOpen ? '▴' : '▾'}`} plain onPress={() => void setDetails(!isOpen)} />
       </Box>
     )
+
+    // Details: one bordered box a group, its switches a row each, the name at the left and a
+    // native On/Off button at the right; In reply and In pane hang under Fix English and are
+    // dim and inert while it is off. The boxes stand in a row and wrap when the row is short.
+    const setPrompt = async (patch: Partial<PromptSwitches>) => {
+      const value = await update($, promptSwitches, prev => ({ ...prev, ...patch }))
+      await $.store.set(PROMPT_STORE_KEY, value).catch(() => undefined)
+    }
+    const row = (key: string, label: string, isOn: boolean, onPress: () => unknown, opts: { isSub?: boolean; isInert?: boolean } = {}) => (
+      <Box key={`${key}-row`} flexDirection="row" alignItems="center" justifyContent="space-between" columnGap={2} paddingLeft={opts.isSub ? 2 : 0}>
+        <Text dimColor={!isOn || opts.isInert}>{label}</Text>
+        <Button key={key} label={isOn ? 'On' : 'Off'} variant={isOn && !opts.isInert ? 'primary' : 'secondary'} dimColor={opts.isInert} onPress={() => (opts.isInert ? undefined : void onPress())} />
+      </Box>
+    )
+    const box = (key: string, title: string, rows: unknown[]) => (
+      <Box key={`${key}-box`} flexDirection="column" borderStyle="round" borderColor={GREY} borderDimColor paddingX={1} width={BOX_W} flexShrink={0}>
+        <Text dimColor>{title}</Text>
+        {rows}
+      </Box>
+    )
+    const details = isOpen ? (
+      <Box key="details" flexDirection="row" flexWrap="wrap" alignItems="flex-start" columnGap={1} rowGap={0} paddingX={1}>
+        {box('session', 'Session', [
+          // Keep warm and Auto-handoff exclude each other: turning one on turns the other off.
+          row('keep-warm', 'Keep warm', isWarm, async () => {
+            await update($, keepWarm, v => !v)
+            if (!isWarm) await update($, autoHandoff, () => false)
+          }),
+          row('auto-handoff', 'Auto-handoff', isAuto, async () => {
+            await update($, autoHandoff, v => !v)
+            if (!isAuto) await update($, keepWarm, () => false)
+          }),
+        ])}
+        {box('prompt', 'Prompt', [
+          row('fix-english', 'Fix English', sw.fixEnglish, () => setPrompt({ fixEnglish: !sw.fixEnglish })),
+          row('in-reply', 'In reply', sw.inReply, () => setPrompt({ inReply: !sw.inReply }), { isSub: true, isInert: !sw.fixEnglish }),
+          row('in-pane', 'In pane', sw.inPane, () => setPrompt({ inPane: !sw.inPane }), { isSub: true, isInert: !sw.fixEnglish }),
+          row('shape-prompt', 'Shape prompt', sw.shapePrompt, () => setPrompt({ shapePrompt: !sw.shapePrompt })),
+        ])}
+      </Box>
+    ) : null
 
     // Asked once: Claude Code's idle compaction fires before the auto-handoff and overrides
     // its note on return. `Turn off` writes the setting; either answer is kept for good.
@@ -563,15 +899,17 @@ export const register: Register = on => {
       </Box>
     ) : null
 
-    // One row always: the figures from the left, the switches at the right end.
+    // One row always: the figures from the left, the buttons at the right end; the Details
+    // boxes under it while unfolded.
     return (
       <Box flexDirection="column">
         {ask}
         <Box flexDirection="row" flexWrap="nowrap" alignItems="center" columnGap={2} overflow="hidden" paddingX={1}>
           {figures}
           <Box flexGrow={1} flexShrink={1} />
-          {switches}
+          {buttons}
         </Box>
+        {details}
         {below}
       </Box>
     )
