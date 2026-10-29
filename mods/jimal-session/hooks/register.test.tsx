@@ -12,11 +12,16 @@ type World = {
   runs: string[][]
   compacts: string[]
   toasts: string[]
+  store: Record<string, unknown>
 }
 
 // A session in E:\AI workflow on Windows, with the fork, files and commands recorded.
-async function session($: Engine, on: On, opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean } = {}) {
-  const world: World = { forks: [], writes: {}, runs: [], compacts: [], toasts: [] }
+async function session(
+  $: Engine,
+  on: On,
+  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string> } = {},
+) {
+  const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store } }
   const clock = mock.clock(on, { now: START })
   mock.env(on, { USERPROFILE: 'C:\\Users\\me' })
   on('session.start', async () => ({ cwd: 'E:\\AI workflow' }) as never)
@@ -45,6 +50,13 @@ async function session($: Engine, on: On, opts: { fork?: string; forkReason?: st
     return (path in world.writes ? { value: world.writes[path] } : { value: '' }) as never
   })
   on('fs.list', () => ({ value: [] }) as never)
+  on('settings.read', () => ({ value: opts.settings ?? {} }) as never)
+  on('store.get', (_$, e) => ({ value: world.store[(e as { key: string }).key] }) as never)
+  on('store.set', (_$, e) => {
+    const { key, value } = e as { key: string; value: unknown }
+    world.store[key] = value
+    return { value: undefined } as never
+  })
   on('process.run', (_$, e) => {
     const argv = (e as { argv: string[] }).argv
     world.runs.push(argv)
@@ -251,12 +263,12 @@ test('band: a narrow window drops the figures one by one, the switches stay', as
   expect(wide.texts).toContain('4d')
   expect(wide.hasSwitches).toBe(true)
 
-  const medium = await shownAt(60)
+  const medium = await shownAt(75)
   expect(medium.texts).toContain('3h')
   expect(medium.texts).not.toContain('4d')
   expect(medium.hasSwitches).toBe(true)
 
-  const narrow = await shownAt(40)
+  const narrow = await shownAt(55)
   expect(narrow.texts).not.toContain('3h')
   expect(narrow.hasSwitches).toBe(true)
 })
@@ -264,7 +276,7 @@ test('band: a narrow window drops the figures one by one, the switches stay', as
 test('band: the room a hidden switch frees goes to the figures', async ($, on) => {
   await session($, on)
   const texts = async () => {
-    const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND.props, bodyColumns: 60 } as never })
+    const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND.props, bodyColumns: 75 } as never })
     const found = (await ui.findAll({ type: 'Text' })).map(t => t.text)
     await ui.unmount()
     return found
@@ -306,4 +318,53 @@ test('compaction: a bare /compact with the short mark and no note waiting goes o
   const compact = $.session.compact as unknown as (e: unknown) => Promise<unknown>
   await compact({ trigger: 'manual', instructions: 'jimal-session handoff', messages: [{ role: 'user', text: 'old', toolUses: [] }] })
   expect(world.compacts).toEqual(['jimal-session handoff'])
+})
+
+test('idle compaction: asked once; Turn off writes the setting and keeps the answer', async ($, on) => {
+  const { world } = await session($, on, { files: { 'C:/Users/me/.claude/settings.json': '{\n  "tui": "fullscreen"\n}\n' } })
+  expect(await texts($)).toContain('Turn off')
+  await press($, 'idle-off')
+  expect(await texts($)).not.toContain('Turn off')
+  expect(JSON.parse(world.writes['C:/Users/me/.claude/settings.json']!)).toEqual({ tui: 'fullscreen', idleCompaction: false })
+  expect(world.store.idleCompaction).toBe('off')
+  expect(world.toasts.some(t => t.startsWith('"idleCompaction": false written'))).toBe(true)
+})
+
+test('idle compaction: Keep on only keeps the answer; an answer or a setting already off means no question', async ($, on) => {
+  const { world } = await session($, on)
+  await press($, 'idle-keep')
+  expect(await texts($)).not.toContain('Keep on')
+  expect(world.store.idleCompaction).toBe('keep')
+  expect(Object.keys(world.writes)).toHaveLength(0)
+})
+
+test('idle compaction: no question with the setting already off, or once answered', async ($, on) => {
+  await session($, on, { settings: { idleCompaction: false }, store: {} })
+  expect(await texts($)).not.toContain('Keep on')
+})
+
+test('idle compaction: no question once answered on this machine', async ($, on) => {
+  await session($, on, { store: { idleCompaction: 'keep' } })
+  expect(await texts($)).not.toContain('Keep on')
+})
+
+test('handoff all: one press leaves a request; this session answers it after its turn, once', async ($, on) => {
+  const { clock, world } = await session($, on, { fork: '## Goal\nShip the band.' })
+  await answer($)
+  await press($, 'handoff-all')
+  expect(world.writes['C:/Users/me/.claude/handoffs/handoff-all.request']).toBe(`${START}\n`)
+  expect(world.forks).toHaveLength(0)
+  await clock.advance(6000)
+  expect(world.forks).toHaveLength(1)
+  expect(Object.keys(world.writes).filter(p => p.endsWith('.md'))).toHaveLength(1)
+  // The same request is not answered twice.
+  await clock.advance(10_000)
+  expect(world.forks).toHaveLength(1)
+})
+
+test('handoff all: a request older than this session is left alone', async ($, on) => {
+  const { clock, world } = await session($, on, { fork: 'note', files: { 'C:/Users/me/.claude/handoffs/handoff-all.request': `${START - 1}\n` } })
+  await answer($)
+  await clock.advance(6000)
+  expect(world.forks).toHaveLength(0)
 })

@@ -10,6 +10,8 @@ const keepWarm = atom({ plugin: 'jimal-session', key: 'keepWarm' } as const, fal
 const autoHandoff = atom({ plugin: 'jimal-session', key: 'autoHandoff' } as const, false)
 const rateLimits = atom({ plugin: 'jimal-session', key: 'rateLimits' } as const, [] as RateWindow[])
 const handoff = atom({ plugin: 'jimal-session', key: 'handoff' } as const, { status: 'idle' } as Handoff)
+// The band asks once whether to turn Claude Code's idle compaction off (see decideIdle).
+const idleAsk = atom({ plugin: 'jimal-session', key: 'idleAsk' } as const, false)
 
 // Claude Code writes the main thread's prompt cache with a 1-hour lifetime on a subscription.
 const CACHE_TTL_MS = 60 * 60 * 1000
@@ -26,6 +28,11 @@ const NOTE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 const COMPACT_MARK = 'jimal-session: handover note'
 // /handoff-now applies its note this long after the command ends.
 const APPLY_DELAY_MS = 1000
+// `Handoff all` leaves a request file (its text: the time); every session on this machine,
+// this one too, answers one newer than its start within this long, once its turn is over.
+const REQUEST_FILE = 'handoff-all.request'
+const REQUEST_MAX_AGE_MS = 10 * 60 * 1000
+const REQUEST_POLL_MS = 5000
 const KEEP_WARM_PROMPT = 'Keep-alive ping to refresh the prompt cache. Reply with "ok" only.'
 
 const GREEN = '#4caf6e'
@@ -35,6 +42,8 @@ const GREY = '#8a8f8c'
 // Each switch's slot, in cells: its dot, a gap, the label and a little air.
 const KEEP_WARM_W = 'Keep warm'.length + 4
 const AUTO_HANDOFF_W = 'Auto-handoff'.length + 4
+// A plain button's slot: its label and a little air.
+const HANDOFF_ALL_W = 'Handoff all'.length + 2
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -106,6 +115,27 @@ const deleteFile = async ($: EngineInterface, path: string): Promise<void> => {
   const home = await homeDir($)
   const argv = isWindows(home) ? ['cmd', '/c', 'del', '/f', '/q', path.replace(/\//g, '\\')] : ['rm', '-f', path]
   await $.process.run(argv, { timeoutMs: 10_000 }).catch(() => undefined)
+}
+
+const requestPath = async ($: EngineInterface): Promise<string> => `${await homeDir($)}/.claude/handoffs/${REQUEST_FILE}`
+
+// Claude Code's own idle compaction fires at 90% of the cache's life (about 54 minutes after
+// the last turn), before this mod's last minute, and on return its summary replaces whatever
+// is there, the handover note included. Its documented switch is this key in settings.json.
+const settingsPath = async ($: EngineInterface): Promise<string> => `${await homeDir($)}/.claude/settings.json`
+
+const turnOffIdleCompaction = async ($: EngineInterface): Promise<string | null> => {
+  const path = await settingsPath($)
+  const text = await $.fs.read(path).catch(() => '')
+  let json: unknown
+  try {
+    json = text.trim() ? JSON.parse(text) : {}
+  } catch {
+    return `${path} is not valid JSON`
+  }
+  if (typeof json !== 'object' || json === null || Array.isArray(json)) return `${path} is not a JSON object`
+  await $.fs.write(path, JSON.stringify({ ...(json as Record<string, unknown>), idleCompaction: false }, null, 2) + '\n')
+  return null
 }
 
 type Note = { path: string; mtimeMs: number }
@@ -260,11 +290,37 @@ const writeHandoff = async ($: EngineInterface, deadline: number): Promise<void>
   $.ui.toast(appliedToast(note.text, applied))
 }
 
+// `Handoff all`: one press, and every open session writes its own note.
+let startedAt = 0
+let handledRequestAt = 0
+let requestCheckedAt = 0
+
+const requestHandoffAll = async ($: EngineInterface): Promise<void> => {
+  const at = await $.clock.now()
+  await $.fs.write(await requestPath($), `${at}\n`)
+  $.ui.toast('Handoff requested: every open session writes its note once its turn is over.')
+}
+
+// A request newer than this session's start, not yet answered and not stale: write the note
+// and let it replace the context, as the auto-handoff does. A note applied and not yet used
+// by a prompt is still current, so such a session does not write another.
+const answerRequest = async ($: EngineInterface, at: number): Promise<void> => {
+  if (at - requestCheckedAt < REQUEST_POLL_MS) return
+  requestCheckedAt = at
+  const askedAt = Number((await $.fs.read(await requestPath($)).catch(() => '')).trim())
+  if (!Number.isFinite(askedAt) || askedAt <= handledRequestAt || askedAt < startedAt || at - askedAt > REQUEST_MAX_AGE_MS) return
+  handledRequestAt = askedAt
+  const ho = await read($, handoff)
+  if (ho.status === 'writing' || (ho.path && ho.isApplied)) return
+  await writeHandoff($, (await read($, expiresAt)) ?? at)
+}
+
 const tick = async ($: EngineInterface): Promise<void> => {
   const at = await $.clock.now()
   await update($, now, () => at)
   const deadline = await read($, expiresAt)
   if (deadline === null || (await read($, isBusy)) || isWarming) return
+  await answerRequest($, at)
   const left = deadline - at
   if (left <= 0 || left > LAST_MINUTE_MS) return
 
@@ -293,6 +349,11 @@ export const register: Register = on => {
     const { rateLimits: limits } = await $.session.usage().catch(() => ({ rateLimits: [] as RateWindow[] }))
     await keepLimits($, limits)
     await pruneNotes($).catch(() => undefined)
+    startedAt = await $.clock.now()
+    // Asked once per machine: the answer is kept in the plugin store; a setting already off needs no question.
+    const settings = (await $.settings.read().catch(() => ({}))) as Record<string, unknown>
+    const choice = await $.store.get('idleCompaction').catch(() => undefined)
+    await update($, idleAsk, () => settings.idleCompaction !== false && choice === undefined)
     await $.command.register({
       name: 'handoff-now',
       description: 'Write a handover note now and let it replace this conversation\'s context (old messages stay on screen); says whether it worked',
@@ -419,7 +480,7 @@ export const register: Register = on => {
       ) : null
 
     const note =
-      ho.status === 'writing' ? 'writing note…' : ho.status === 'saved' ? 'note saved' : ho.status === 'unapplied' ? 'note not applied' : ho.status === 'failed' ? 'note failed' : ''
+      ho.status === 'writing' ? 'writing note…' : ho.status === 'saved' ? (ho.isApplied ? 'note applied' : 'note saved') : ho.status === 'unapplied' ? 'note not applied' : ho.status === 'failed' ? 'note failed' : ''
 
     const cache = cacheText(left, isWorking)
     const sessionText = `${timeLeft(session, at, false)} ${percentLeft(session)}`
@@ -428,7 +489,7 @@ export const register: Register = on => {
     // The switches keep the right end, and the room the shown ones leave goes to the figures;
     // when it is short, the figures give way one at a time: the note, then the week, then the 5-hour window, then the
     // cache line shrinks to its minutes (in cells: dot, texts, bars and gaps, padding).
-    const switchesW = (isAuto ? 0 : KEEP_WARM_W) + (isWarm ? 0 : AUTO_HANDOFF_W) + (isAuto || isWarm ? 0 : 2)
+    const switchesW = HANDOFF_ALL_W + 2 + (isAuto ? 0 : KEEP_WARM_W) + (isWarm ? 0 : AUTO_HANDOFF_W) + (isAuto || isWarm ? 0 : 2)
     const room = e.props.bodyColumns - (switchesW + 4)
     const width = (parts: string[]) => parts.reduce((w, p) => w + p.length + 3, 0)
     const cacheShort = cache.replace(/^cache (warm )?/, '') || cache
@@ -471,17 +532,38 @@ export const register: Register = on => {
         {shownNote ? <Text dimColor wrap="truncate-end">{shownNote}</Text> : null}
       </Box>
     )
-    // The two switches exclude each other: while one is on, the other is hidden.
+    // `Handoff all` first, then the two switches, which exclude each other: while one is on, the other is hidden.
     const switches = (
       <Box key="switches" flexDirection="row" alignItems="center" columnGap={2} flexShrink={0}>
+        <Box key="handoff-all-slot" minWidth={HANDOFF_ALL_W} flexShrink={0} flexDirection="row" alignItems="center" justifyContent="flex-end">
+          <Button key="handoff-all" label="Handoff all" plain onPress={() => void requestHandoffAll($).catch(() => undefined)} />
+        </Box>
         {toggle('keep-warm', 'Keep warm', KEEP_WARM_W, isWarm, !isAuto, () => update($, keepWarm, v => !v))}
         {toggle('auto-handoff', 'Auto-handoff', AUTO_HANDOFF_W, isAuto, !isWarm, () => update($, autoHandoff, v => !v))}
       </Box>
     )
 
+    // Asked once: Claude Code's idle compaction fires before the auto-handoff and overrides
+    // its note on return. `Turn off` writes the setting; either answer is kept for good.
+    const decideIdle = async (choice: 'keep' | 'off') => {
+      await $.store.set('idleCompaction', choice).catch(() => undefined)
+      await update($, idleAsk, () => false)
+      if (choice !== 'off') return
+      const fault = await turnOffIdleCompaction($).catch((err: unknown) => String(err))
+      $.ui.toast(fault ? `idleCompaction not changed: ${fault}` : '"idleCompaction": false written to ~/.claude/settings.json (new sessions use it).')
+    }
+    const ask = (await read($, idleAsk)) ? (
+      <Box key="idle-ask" flexDirection="row" flexWrap="nowrap" alignItems="center" columnGap={2} overflow="hidden" paddingX={1}>
+        <Text color={AMBER} wrap="truncate-end">Claude Code's idle compaction (at 54m) overrides auto-handoff:</Text>
+        <Button key="idle-keep" label="Keep on" plain onPress={() => void decideIdle('keep')} />
+        <Button key="idle-off" label="Turn off" plain onPress={() => void decideIdle('off')} />
+      </Box>
+    ) : null
+
     // One row always: the figures from the left, the switches at the right end.
     return (
       <Box flexDirection="column">
+        {ask}
         <Box flexDirection="row" flexWrap="nowrap" alignItems="center" columnGap={2} overflow="hidden" paddingX={1}>
           {figures}
           <Box flexGrow={1} flexShrink={1} />

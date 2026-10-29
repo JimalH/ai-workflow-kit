@@ -28,6 +28,8 @@ declare module 'claude-code' {
       autoHandoff: boolean
       rateLimits: RateWindow[]
       handoff: Handoff
+      /** The band asks once whether to turn Claude Code's idle compaction off. */
+      idleAsk: boolean
     }
   }
 }
