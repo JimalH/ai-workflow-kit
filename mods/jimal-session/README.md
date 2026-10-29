@@ -143,3 +143,7 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 ## Changes (0.6.2)
 
 - On the desktop the cache dot and its text are one SVG drawn as the progress bar draws its row (22 px high, a 4 px dot at x=5, 13 px text from x=16 in the system font), so the dot sits on the text's centre line and lines up with the progress bar's.
+
+## Changes (0.6.3)
+
+- Warm with more than half an hour left, the cache shows as its dot alone; the text (`cache warm 24m`, `cache cold`, `cache expired`) is drawn in the last half hour and when cold or expired. The SVG allows 7.2 px a character, so the text is no longer cut.

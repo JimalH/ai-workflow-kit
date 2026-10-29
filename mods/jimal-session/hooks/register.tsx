@@ -55,9 +55,12 @@ const GREEN = '#4caf6e'
 const ROW_PX = 22
 const SVG_FONT = "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif"
 const xml = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-const cacheSvgW = (text: string) => 16 + Math.round(text.length * 6.6) + 2
+// Warm with more than the countdown's half hour left, the dot stands alone: `cache warm` said
+// nothing the colour does not. The text is drawn in the last half hour, and when cold or expired.
+const cacheShown = (text: string) => (text === 'cache warm' ? '' : text)
+const cacheSvgW = (text: string) => (cacheShown(text) ? 16 + Math.ceil(cacheShown(text).length * 7.2) + 4 : 12)
 const cacheSvg = (text: string, color: string) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${cacheSvgW(text)}" height="${ROW_PX}" viewBox="0 0 ${cacheSvgW(text)} ${ROW_PX}"><circle cx="5" cy="${ROW_PX / 2}" r="4" fill="${color}"/><text x="16" y="${ROW_PX / 2 + 4.5}" font-family="${SVG_FONT}" font-size="13" font-weight="500" fill="${color}">${xml(text)}</text></svg>`
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${cacheSvgW(text)}" height="${ROW_PX}" viewBox="0 0 ${cacheSvgW(text)} ${ROW_PX}"><circle cx="5" cy="${ROW_PX / 2}" r="4" fill="${color}"/>${cacheShown(text) ? `<text x="16" y="${ROW_PX / 2 + 4.5}" font-family="${SVG_FONT}" font-size="13" font-weight="500" fill="${color}">${xml(cacheShown(text))}</text>` : ''}</svg>`
 const AMBER = '#e2a94e'
 const RED = '#e0846b'
 const GREY = '#8a8f8c'
@@ -848,7 +851,7 @@ export const register: Register = on => {
     const middleText = working || listText
     // The middle takes what the figures leave, up to MIDDLE_W; under MIN_MIDDLE_W it is dropped.
     const middleWFor = (keepSession: boolean, keepWeek: boolean) =>
-      Math.max(0, Math.min(MIDDLE_W, middleText.length, room - width([`● ${cache}`, ...(keepSession && session ? [sessionText] : []), ...(keepWeek && week ? [weekText] : [])]) - 3))
+      Math.max(0, Math.min(MIDDLE_W, middleText.length, room - width([`● ${cacheShown(cache)}`.trim(), ...(keepSession && session ? [sessionText] : []), ...(keepWeek && week ? [weekText] : [])]) - 3))
     const plan = [
       { middle: true, week: true, session: true, cache },
       { middle: true, week: false, session: true, cache },
@@ -858,7 +861,7 @@ export const register: Register = on => {
     ]
     const shown =
       plan.find(p =>
-        width([`● ${p.cache}`, ...(p.session && session ? [sessionText] : []), ...(p.week && week ? [weekText] : []), ...(p.middle && middleText ? ['x'.repeat(Math.max(middleWFor(p.session, p.week), MIN_MIDDLE_W))] : [])]) <= room,
+        width([`● ${cacheShown(p.cache)}`.trim(), ...(p.session && session ? [sessionText] : []), ...(p.week && week ? [weekText] : []), ...(p.middle && middleText ? ['x'.repeat(Math.max(middleWFor(p.session, p.week), MIN_MIDDLE_W))] : [])]) <= room,
       ) ?? plan[plan.length - 1]!
     const middleW = middleWFor(shown.session, shown.week)
     const showMiddle = shown.middle && middleText !== '' && middleW >= MIN_MIDDLE_W
@@ -887,7 +890,7 @@ export const register: Register = on => {
         ) : (
           <Box flexDirection="row" columnGap={1} flexShrink={0}>
             <Text color={color}>●</Text>
-            <Text color={color}>{shown.cache}</Text>
+            {cacheShown(shown.cache) ? <Text color={color}>{cacheShown(shown.cache)}</Text> : null}
           </Box>
         )}
         {showSession || showWeek ? <Text dimColor>|</Text> : null}
