@@ -97,3 +97,8 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 
 - A Details box grows to its content instead of a fixed width: a native On/Off button is wider than its label, and overlapped the border.
 - The middle of the row shrinks to the room the figures leave (down to 12 cells) before it is dropped; the scrolled window follows that width.
+
+## Changes (0.5.2)
+
+- A Details row gives its native On/Off button a slot of 8 cells, as the desktop draws it wider than its label: no more overlap with the border.
+- The middle of the row (the switches on) now outranks the usage figures when the row is short: the week goes first, then the 5-hour window, and the middle keeps at least 8 cells.

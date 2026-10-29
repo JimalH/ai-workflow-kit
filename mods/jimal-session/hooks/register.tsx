@@ -54,9 +54,11 @@ const HANDOFF_ALL_W = 'Handoff all'.length + 2
 const DETAILS_W = 'Details ▾'.length + 2
 // The middle of the row (what runs now, or the switches on), in cells.
 const MIDDLE_W = 36
-const MIN_MIDDLE_W = 12
+const MIN_MIDDLE_W = 8
 // A Details box, in cells, border included.
 const BOX_W = 30
+// The cells a native On/Off button is given in a Details row: wider than its label, as the desktop draws it.
+const BUTTON_W = 8
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -763,20 +765,21 @@ export const register: Register = on => {
     const cacheShort = cache.replace(/^cache (warm )?/, '') || cache
     const middleText = working || listText
     // The middle takes what the figures leave, up to MIDDLE_W; under MIN_MIDDLE_W it is dropped.
-    const figuresW = width([`● ${cache}`, ...(session ? [sessionText] : []), ...(week ? [weekText] : [])])
-    const middleW = Math.max(0, Math.min(MIDDLE_W, middleText.length, room - figuresW - 3))
+    const middleWFor = (keepSession: boolean, keepWeek: boolean) =>
+      Math.max(0, Math.min(MIDDLE_W, middleText.length, room - width([`● ${cache}`, ...(keepSession && session ? [sessionText] : []), ...(keepWeek && week ? [weekText] : [])]) - 3))
     const plan = [
       { middle: true, week: true, session: true, cache },
-      { middle: false, week: true, session: true, cache },
-      { middle: false, week: false, session: true, cache },
+      { middle: true, week: false, session: true, cache },
+      { middle: true, week: false, session: false, cache },
       { middle: false, week: false, session: false, cache },
       { middle: false, week: false, session: false, cache: cacheShort },
     ]
     const shown =
       plan.find(p =>
-        width([`● ${p.cache}`, ...(p.session && session ? [sessionText] : []), ...(p.week && week ? [weekText] : []), ...(p.middle && middleText ? ['x'.repeat(Math.max(middleW, MIN_MIDDLE_W))] : [])]) <= room,
+        width([`● ${p.cache}`, ...(p.session && session ? [sessionText] : []), ...(p.week && week ? [weekText] : []), ...(p.middle && middleText ? ['x'.repeat(Math.max(middleWFor(p.session, p.week), MIN_MIDDLE_W))] : [])]) <= room,
       ) ?? plan[plan.length - 1]!
-    const showMiddle = shown.middle && middleText !== ''
+    const middleW = middleWFor(shown.session, shown.week)
+    const showMiddle = shown.middle && middleText !== '' && middleW >= MIN_MIDDLE_W
     // A window with no reading yet is left out, rather than shown as dashes.
     const showSession = shown.session && session !== undefined
     const showWeek = shown.week && week !== undefined
@@ -854,7 +857,9 @@ export const register: Register = on => {
     const row = (key: string, label: string, isOn: boolean, onPress: () => unknown, opts: { isSub?: boolean; isInert?: boolean } = {}) => (
       <Box key={`${key}-row`} flexDirection="row" alignItems="center" justifyContent="space-between" columnGap={3} paddingLeft={opts.isSub ? 2 : 0}>
         <Text dimColor={!isOn || opts.isInert}>{label}</Text>
-        <Button key={key} label={isOn ? 'On' : 'Off'} variant={isOn && !opts.isInert ? 'primary' : 'secondary'} dimColor={opts.isInert} onPress={() => (opts.isInert ? undefined : void onPress())} />
+        <Box width={BUTTON_W} flexShrink={0} flexDirection="row" justifyContent="flex-end">
+          <Button key={key} label={isOn ? 'On' : 'Off'} variant={isOn && !opts.isInert ? 'primary' : 'secondary'} dimColor={opts.isInert} onPress={() => (opts.isInert ? undefined : void onPress())} />
+        </Box>
       </Box>
     )
     const box = (key: string, title: string, rows: unknown[]) => (
