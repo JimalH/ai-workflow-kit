@@ -119,3 +119,8 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 - A Details row is two cells high: a native On/Off button is taller than a text row, and rows of one cell overlapped each other.
 - The middle of the row takes the room left between the figures and the buttons as the surface measures it, instead of a width computed from `bodyColumns`, which the desktop reports smaller than the row is.
 - Shape prompt leaves an aside alone: the small model is told to give a non-task back unchanged, and a reply that is not shaped (no Goal / 目标 heading, or an explanation) sends the prompt as typed.
+
+## Changes (0.5.5)
+
+- A Details box sizes to its rows again (the fixed height left a blank row), and its title is bold.
+- The spacer between the figures and the buttons no longer grows, so the middle gets the row's spare room.

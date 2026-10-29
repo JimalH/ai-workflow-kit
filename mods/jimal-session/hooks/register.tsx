@@ -851,8 +851,8 @@ export const register: Register = on => {
       </Box>
     )
     const box = (key: string, title: string, rows: unknown[]) => (
-      <Box key={`${key}-box`} flexDirection="column" borderStyle="round" borderColor={GREY} borderDimColor paddingX={1} minWidth={BOX_W} height={rows.length * ROW_H + 3} flexShrink={0}>
-        <Text dimColor>{title}</Text>
+      <Box key={`${key}-box`} flexDirection="column" borderStyle="round" borderColor={GREY} borderDimColor paddingX={1} minWidth={BOX_W} flexShrink={0}>
+        <Text bold>{title}</Text>
         {rows}
       </Box>
     )
@@ -902,7 +902,6 @@ export const register: Register = on => {
         {ask}
         <Box flexDirection="row" flexWrap="nowrap" alignItems="center" columnGap={2} overflow="hidden" paddingX={1}>
           {figures}
-          <Box flexGrow={1} flexShrink={1} />
           {buttons}
         </Box>
         {details}
