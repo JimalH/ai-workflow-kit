@@ -55,10 +55,6 @@ const MIDDLE_W = 36
 const MIN_MIDDLE_W = 8
 // A Details box, in cells, border included.
 const BOX_W = 30
-// The cells a native On/Off button is given in a Details row: wider than its label, as the desktop draws it.
-const BUTTON_W = 8
-// A Details row, in cells: a native button is taller than one text row.
-const ROW_H = 2
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -835,18 +831,21 @@ export const register: Register = on => {
       </Box>
     )
 
-    // Details: one bordered box a group, its switches a row each, the name at the left and a
-    // native On/Off button at the right; In reply and In pane hang under Fix English and are
-    // dim and inert while it is off. The boxes stand in a row and wrap when the row is short.
+    // Details: one bordered box a group, its switches a row each, one cell high as the band's
+    // row: the name at the left, a dot and a plain `on` / `off` button at the right (the dot
+    // green while on, since a button's label takes no colour). In reply and In pane hang
+    // under Fix English and are dim and inert while it is off. The boxes stand in a row and
+    // wrap when the row is short.
     const setPrompt = async (patch: Partial<PromptSwitches>) => {
       const value = await update($, promptSwitches, prev => ({ ...prev, ...patch }))
       await $.store.set(PROMPT_STORE_KEY, value).catch(() => undefined)
     }
     const row = (key: string, label: string, isOn: boolean, onPress: () => unknown, opts: { isSub?: boolean; isInert?: boolean } = {}) => (
-      <Box key={`${key}-row`} flexDirection="row" alignItems="center" justifyContent="space-between" columnGap={3} paddingLeft={opts.isSub ? 2 : 0} height={ROW_H}>
+      <Box key={`${key}-row`} flexDirection="row" alignItems="center" justifyContent="space-between" columnGap={3} paddingLeft={opts.isSub ? 2 : 0} height={1}>
         <Text dimColor={!isOn || opts.isInert}>{label}</Text>
-        <Box width={BUTTON_W} flexShrink={0} flexDirection="row" justifyContent="flex-end">
-          <Button key={key} label={isOn ? 'On' : 'Off'} variant={isOn && !opts.isInert ? 'primary' : 'secondary'} dimColor={opts.isInert} onPress={() => (opts.isInert ? undefined : void onPress())} />
+        <Box flexDirection="row" alignItems="center" columnGap={1} flexShrink={0}>
+          <Text color={isOn && !opts.isInert ? GREEN : GREY}>●</Text>
+          <Button key={key} label={isOn ? 'on' : 'off'} plain dimColor={!isOn || opts.isInert} onPress={() => (opts.isInert ? undefined : void onPress())} />
         </Box>
       </Box>
     )
