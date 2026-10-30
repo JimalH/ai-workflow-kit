@@ -57,3 +57,9 @@ Changes (1.5.0):
 - Follows the session's task list (desktop plan tool, TodoWrite, wrap-up) when nothing reports a flow.
 - Folds the task rows to one line when a message is sent during a flow; other bands drawn above the bar.
 - Tests: following the task list, time left from averages and estimates, five rows and expanding, the wrap-up, folding.
+
+Changes (1.5.1):
+
+- The agents pane no longer goes blank ("jimal-progress has not drawn in this pane") when an agent record has no model: a spawn that left the model to the session's default stored `undefined`, and the pane threw on it. The record now stores an empty model, a step that names no model keeps the spawn's, and the readers take an empty model, type or description.
+- A draw that still fails writes the error in the pane instead of leaving it to the engine's placeholder.
+- Tests: a record without a model, and 84 records, draw on the terminal and the desktop.

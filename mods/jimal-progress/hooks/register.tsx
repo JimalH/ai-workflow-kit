@@ -562,23 +562,27 @@ const costOf = (model: string, u: Usage, isRequest: boolean): number => {
 }
 
 // Haiku 4.5 and the Claude 3 models have a 200K window; the rest, Haiku 5.5 included, 1M.
-const windowOf = (model: string): number => (/haiku-4|claude-3/i.test(model) ? 200_000 : 1_000_000)
+// An agent's `model`, `type` or `description` may be empty: a spawn result that left the
+// model to the session's default, or a record an earlier version stored. Each reader takes
+// the empty value, so one such record cannot throw the whole pane away.
+const windowOf = (model: string | undefined): number => (/haiku-4|claude-3/i.test(model ?? '') ? 200_000 : 1_000_000)
 
 // `savvy-careful`, or `savvy-flow:savvy-careful` when the agents ship in a plugin.
-const tierOf = (type: string): string => {
-  const bare = type.replace(/^[^:]*:/, '')
+const tierOf = (type: string | undefined): string => {
+  const bare = (type ?? '').replace(/^[^:]*:/, '')
   const t = bare.replace(/^savvy-/, '').toLowerCase()
   return Object.hasOwn(TIER_COLOR, t) && bare.startsWith('savvy-') ? t : 'other'
 }
 
-const modelName = (id: string): string => {
+const modelName = (id: string | undefined): string => {
+  if (!id) return '—'
   const m = /(fable|mythos|opus|sonnet|haiku)-(\d+)(?:-(\d{1,2})(?!\d))?/i.exec(id)
   const [, family = '', major = '', minor] = m ?? []
   if (!family) return id.replace(/^claude-/, '').replace(/\[.*\]$/, '') || '—'
   return `${family.charAt(0).toUpperCase()}${family.slice(1).toLowerCase()} ${major}${minor ? '.' + minor : ''}`
 }
 
-const norm = (s: string): string => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+const norm = (s: string | undefined): string => (s ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 
 const fmtTokens = (n: number): string =>
   n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`
@@ -840,8 +844,8 @@ const agentSvg = (W: number, a: AgentRun, at: number): string => {
     W,
     66,
     `${rowCrab(W, 0, 14, costumeOf(a.type), false, a.status === 'running')}
-<text class="t" ${startText(W, 42, 18)} font-family="${FONT}" font-size="13" font-weight="600">${xml(fitText(a.description || a.type, 13, textW))}</text>
-<text ${startText(W, 42, 34)} font-family="${FONT}" font-size="11"><tspan fill="${color}">${xml(tier === 'other' ? a.type : tierWord(tier))}</tspan><tspan class="s">  ${xml(meta.join('  ·  '))}</tspan></text>
+<text class="t" ${startText(W, 42, 18)} font-family="${FONT}" font-size="13" font-weight="600">${xml(fitText(a.description || a.type || '', 13, textW))}</text>
+<text ${startText(W, 42, 34)} font-family="${FONT}" font-size="11"><tspan fill="${color}">${xml(tier === 'other' ? a.type || '' : tierWord(tier))}</tspan><tspan class="s">  ${xml(meta.join('  ·  '))}</tspan></text>
 ${steps && stepsW > 30 ? `<text class="t" ${startText(W, 42, 49)} font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${xml(fitText(steps, 11, stepsW))}</text>` : ''}
 <text class="s" ${endText(W, 42 + barW, 49, true)} font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${stats}</text>
 <rect class="k" x="${mx(W, 42, barW)}" y="55" width="${barW}" height="4" rx="2"/><rect${progress === null ? ' class="m"' : ''} x="${mx(W, 42, fillW)}" y="55" width="${fillW}" height="4" rx="2"${progress === null ? '' : ` fill="${color}"`}/>
@@ -1202,8 +1206,8 @@ export const register: Register = (on, options) => {
         id: started.agentId ?? e.tool_use_id,
         agentId: started.agentId,
         type: e.subagentType,
-        description: e.description,
-        model: started.model,
+        description: e.description ?? '',
+        model: started.model ?? '',
         status: 'running',
         startedAt: at,
         contextTokens: 0,
@@ -1232,33 +1236,33 @@ export const register: Register = (on, options) => {
     const usage = result.usage
     if (!agentId || !usage) return result
 
-    const model = usage.model || e.model
     await update($, agents, list =>
-      list.map((a): AgentRun =>
-        a.agentId !== agentId
-          ? a
-          : {
-              ...a,
-              model,
-              effort: typeof e.effort === 'string' ? e.effort : a.effort,
-              status: 'running',
-              endedAt: undefined,
-              contextTokens:
-                (usage.input_tokens || 0) +
-                (usage.cache_read_input_tokens || 0) +
-                (usage.cache_creation_input_tokens || 0) +
-                (usage.output_tokens || 0),
-              contextMax: windowOf(model),
-              tokens:
-                a.tokens +
-                (usage.input_tokens || 0) +
-                (usage.output_tokens || 0) +
-                (usage.cache_read_input_tokens || 0) +
-                (usage.cache_creation_input_tokens || 0),
-              costUsd: a.costUsd + costOf(model, usage, true),
-              steps: a.steps + 1,
-            },
-      ),
+      list.map((a): AgentRun => {
+        if (a.agentId !== agentId) return a
+        // A step that names no model keeps the one the spawn gave.
+        const model = usage.model || e.model || a.model
+        return {
+          ...a,
+          model,
+          effort: typeof e.effort === 'string' ? e.effort : a.effort,
+          status: 'running',
+          endedAt: undefined,
+          contextTokens:
+            (usage.input_tokens || 0) +
+            (usage.cache_read_input_tokens || 0) +
+            (usage.cache_creation_input_tokens || 0) +
+            (usage.output_tokens || 0),
+          contextMax: windowOf(model),
+          tokens:
+            a.tokens +
+            (usage.input_tokens || 0) +
+            (usage.output_tokens || 0) +
+            (usage.cache_read_input_tokens || 0) +
+            (usage.cache_creation_input_tokens || 0),
+          costUsd: a.costUsd + costOf(model, usage, true),
+          steps: a.steps + 1,
+        }
+      }),
     )
     return result
   })
@@ -1466,6 +1470,16 @@ export const register: Register = (on, options) => {
             })}
           </Box>
         )}
+      </Box>
+    )
+  }).catch(($, e, next) => {
+    // A record the drawing cannot read would otherwise leave the pane blank with the
+    // engine's own placeholder; say what failed where the person looks for the agents.
+    const { Box, Text } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column">
+        <Text color="red">jimal-progress: the agents pane could not be drawn.</Text>
+        <Text dimColor wrap="wrap">{String((next.error as Error)?.message ?? next.error)}</Text>
       </Box>
     )
   })
