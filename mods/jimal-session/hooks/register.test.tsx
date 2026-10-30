@@ -498,14 +498,27 @@ test('fix English: a failed call lets the prompt through with a toast', async ($
   expect(world.toasts[0]).toMatch(/^Fix English: API error 529/)
 })
 
-test('shape prompt: the structured version goes as the prompt, the original beside it; a shaped prompt is not proofread again', async ($, on) => {
-  const { world } = await session($, on, { reply: 'Goal: a faster page.\nDeliverable: the change.', store: { prompt: { ...PROMPT_ON, fixEnglish: true, shapePrompt: true } } })
+test('shape prompt: the prompt goes as typed, the arranged version beside it; a shaped prompt is not proofread again', async ($, on) => {
+  const { world } = await session($, on, { reply: '**Tasks**\n1. make teh page faster\n\n**Context**\nit is slow', store: { prompt: { ...PROMPT_ON, fixEnglish: true, shapePrompt: true } } })
   const out = await submit($, 'make teh page faster, it is slow')
   expect(out.drop).toBeUndefined()
-  expect(out.text).toBe('Goal: a faster page.\nDeliverable: the change.')
-  expect(out.context?.[0]).toContain('make teh page faster, it is slow')
+  expect(out.text).toBe('make teh page faster, it is slow')
+  expect(out.context?.[0]).toContain('arranged the prompt above into sections')
+  expect(out.context?.[0]).toContain('**Tasks**\n1. make teh page faster\n\n**Context**\nit is slow')
   expect(world.completions).toHaveLength(1)
-  expect(world.completions[0]?.system).toMatch(/restructure a prompt/)
+  expect(world.completions[0]?.system).toMatch(/extractive organiser/)
+})
+
+test('shape prompt: a reply with no heading or list, or padded past the original, sends the prompt alone', async ($, on) => {
+  const { world } = await session($, on, { reply: p => (p.startsWith('pad') ? `**Tasks**\n1. ${p}\n\n**Context**\n${'x'.repeat(400)}` : `Sure. ${p}`), store: { prompt: { ...PROMPT_ON, shapePrompt: true } } })
+  const plain = await submit($, 'make the page faster, it is slow')
+  expect(plain.text).toBe('make the page faster, it is slow')
+  expect(plain.context).toBeUndefined()
+  const padded = await submit($, 'pad the page faster, it is slow')
+  expect(padded.text).toBe('pad the page faster, it is slow')
+  expect(padded.context).toBeUndefined()
+  expect(world.completions).toHaveLength(2)
+  expect(world.toasts).toHaveLength(0)
 })
 
 test('shape prompt: a Chinese prompt is shaped too; a failed call sends it as typed with a toast in Chinese; a few characters go as they are', async ($, on) => {
@@ -563,13 +576,13 @@ test('fix English, live: the draft is checked 900 ms after the last change and t
 })
 
 test('shape prompt: a prompt ending in ++ is shaped with the switch off, and the mark is dropped', async ($, on) => {
-  const { world } = await session($, on, { reply: 'Goal: a faster page.', store: { prompt: { ...PROMPT_ON } } })
+  const { world } = await session($, on, { reply: '1. make the page faster\n2. it is slow', store: { prompt: { ...PROMPT_ON } } })
   const plain = await submit($, 'make the page faster, it is slow')
   expect(plain.text).toBe('make the page faster, it is slow')
   expect(world.completions).toHaveLength(0)
   const marked = await submit($, 'make the page faster, it is slow ++')
-  expect(marked.text).toBe('Goal: a faster page.')
-  expect(marked.context?.[0]).toContain('make the page faster, it is slow')
+  expect(marked.text).toBe('make the page faster, it is slow')
+  expect(marked.context?.[0]).toContain('1. make the page faster\n2. it is slow')
   expect(marked.context?.[0]).not.toContain('++')
   expect(world.completions[0]?.prompt).toBe('make the page faster, it is slow')
 })
