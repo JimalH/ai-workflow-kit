@@ -27,6 +27,17 @@ export type PromptSwitches = {
   shapePrompt: boolean
 }
 
+/** The Auto-update switch: the plugins are updated at the session's start, once a day. */
+export type PluginUpdate = {
+  isOn: boolean
+  /** `this`: this mod from its marketplace; `all`: every installed plugin from every marketplace. */
+  scope: 'this' | 'all'
+  /** When the last check ran, in ms since the epoch; null before any. */
+  checkedAt: number | null
+  /** What the last check found, as the status row shows it. */
+  result: string
+}
+
 /** One run of a word diff: text kept, removed from the original, or added by the correction. */
 export type Segment = { kind: 'same' | 'del' | 'ins'; text: string }
 
@@ -62,6 +73,9 @@ declare module 'claude-code' {
       isDetailsOpen: boolean
       /** When Keep warm turns itself off, in ms since the epoch; null while off. */
       keepWarmUntil: number | null
+      pluginUpdate: PluginUpdate
+      /** A plugin update is running now. */
+      isUpdating: boolean
     }
   }
 }

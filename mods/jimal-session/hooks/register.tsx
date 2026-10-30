@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionMessage } from 'claude-code'
 
-import type { Check, Handoff, PromptSwitches, RateWindow, Segment } from '../types'
+import type { Check, Handoff, PluginUpdate, PromptSwitches, RateWindow, Segment } from '../types'
 
 const expiresAt = atom({ plugin: 'jimal-session', key: 'expiresAt' } as const, null as number | null)
 const isBusy = atom({ plugin: 'jimal-session', key: 'isBusy' } as const, false)
@@ -20,6 +20,9 @@ const promptStatus = atom({ plugin: 'jimal-session', key: 'promptStatus' } as co
 const check = atom({ plugin: 'jimal-session', key: 'check' } as const, null as Check | null)
 // When Keep warm turns itself off, in ms since the epoch; null while off.
 const keepWarmUntil = atom({ plugin: 'jimal-session', key: 'keepWarmUntil' } as const, null as number | null)
+// Auto-update: the switch, its scope and the last check, kept in the store; the run in progress.
+const pluginUpdate = atom({ plugin: 'jimal-session', key: 'pluginUpdate' } as const, { isOn: false, scope: 'this', checkedAt: null, result: '' } as PluginUpdate)
+const isUpdating = atom({ plugin: 'jimal-session', key: 'isUpdating' } as const, false)
 // The Details boxes are unfolded under the band's row.
 const isDetailsOpen = atom({ plugin: 'jimal-session', key: 'isDetailsOpen' } as const, false)
 
@@ -403,6 +406,13 @@ const keepLimits = async ($: EngineInterface, limits: readonly RateWindow[]): Pr
 
 const PROMPT_STORE_KEY = 'prompt'
 const DETAILS_STORE_KEY = 'details'
+const UPDATE_STORE_KEY = 'pluginUpdate'
+// Auto-update runs `claude plugin marketplace update` and `claude plugin update` through the
+// host's own CLI: this mod from its marketplace, or every installed plugin (`plugin list --json`).
+const MARKETPLACE = 'ai-workflow-kit'
+const THIS_PLUGIN = `jimal-session@${MARKETPLACE}`
+const UPDATE_EVERY_MS = 24 * 60 * 60 * 1000
+const UPDATE_TIMEOUT_MS = 120_000
 const PANE = 'jimal-session-check'
 const SMALL_MODEL = 'haiku'
 // An English prompt shorter than this is sent as it is: a word or two has nothing to fix.
@@ -612,6 +622,60 @@ const fixContext = (marked: string) =>
     marked,
   ].join('\n')
 
+// ---------------------------------------------------------------------------
+// Auto-update: once a day at the session's start (and when the switch is turned on with a
+// check due), in the background. What `claude plugin update` says is read for `updated from
+// X to Y`; anything else that exits non-zero is a failure, written to the debug log.
+// ---------------------------------------------------------------------------
+
+const savePluginUpdate = async ($: EngineInterface, patch: Partial<PluginUpdate>): Promise<PluginUpdate> => {
+  const value = await update($, pluginUpdate, prev => ({ ...prev, ...patch }))
+  await $.store.set(UPDATE_STORE_KEY, { isOn: value.isOn, scope: value.scope, checkedAt: value.checkedAt, result: value.result }).catch(() => undefined)
+  return value
+}
+
+const isUpdateDue = (u: PluginUpdate, at: number) => u.isOn && (u.checkedAt === null || at - u.checkedAt >= UPDATE_EVERY_MS)
+
+const ago = (ms: number): string =>
+  ms < 60_000 ? 'just now' : ms < 3_600_000 ? `${Math.round(ms / 60_000)}m ago` : ms < 86_400_000 ? `${Math.round(ms / 3_600_000)}h ago` : `${Math.round(ms / 86_400_000)}d ago`
+
+const installedPlugins = async ($: EngineInterface): Promise<string[]> => {
+  const r = await $.process.run(['claude', 'plugin', 'list', '--json'], { timeoutMs: UPDATE_TIMEOUT_MS })
+  if (r.exitCode !== 0) throw new Error(r.stderr.trim() || `plugin list exited ${r.exitCode}`)
+  const list = JSON.parse(r.stdout) as { id?: unknown }[]
+  return list.map(p => (typeof p.id === 'string' ? p.id : '')).filter(id => id !== '')
+}
+
+const runPluginUpdate = async ($: EngineInterface): Promise<void> => {
+  if (await read($, isUpdating)) return
+  await update($, isUpdating, () => true)
+  const updated: string[] = []
+  const failed: string[] = []
+  try {
+    const scope = (await read($, pluginUpdate)).scope
+    await counted($, '◷ Plugins · updating…', async () => {
+      const mp = await $.process.run(['claude', 'plugin', 'marketplace', 'update', ...(scope === 'this' ? [MARKETPLACE] : [])], { timeoutMs: UPDATE_TIMEOUT_MS })
+      if (mp.exitCode !== 0) throw new Error(mp.stderr.trim() || mp.stdout.trim() || `marketplace update exited ${mp.exitCode}`)
+      const targets = scope === 'this' ? [THIS_PLUGIN] : await installedPlugins($)
+      for (const id of targets) {
+        const r = await $.process.run(['claude', 'plugin', 'update', id], { timeoutMs: UPDATE_TIMEOUT_MS }).catch((err: unknown) => ({ exitCode: 1, stdout: '', stderr: String(err) }))
+        const m = /updated from (\S+) to (\S+)/.exec(r.stdout)
+        if (m) updated.push(`${id.split('@')[0]} ${m[1]} → ${m[2]}`)
+        else if (r.exitCode !== 0) failed.push(`${id}: ${(r.stderr || r.stdout).trim().split('\n').pop() ?? ''}`)
+      }
+    })
+    const result = updated.length > 0 ? `${updated.join(', ')} ready · /reload-plugins` : failed.length > 0 ? 'check failed · see debug log' : 'up to date'
+    await savePluginUpdate($, { checkedAt: await $.clock.now(), result })
+    if (failed.length > 0) $.ui.log(`jimal-session: plugin update failed: ${failed.join('; ')}`, { to: 'debug' })
+    if (updated.length > 0) $.ui.toast(`Plugins updated: ${updated.join(', ')}. /reload-plugins to apply.`)
+  } catch (err) {
+    await savePluginUpdate($, { checkedAt: await $.clock.now(), result: 'check failed · see debug log' })
+    $.ui.log(`jimal-session: plugin update failed: ${String(err)}`, { to: 'debug' })
+  } finally {
+    await update($, isUpdating, () => false)
+  }
+}
+
 const shapeContext = (shaped: string) =>
   ['[jimal-session] A small model arranged the prompt above into sections, which follow. They add nothing: the prompt as typed is what the person meant, and where the two differ it wins.', '', shaped].join('\n')
 
@@ -683,6 +747,17 @@ export const register: Register = on => {
     }
     const keptDetails = await $.store.get(DETAILS_STORE_KEY).catch(() => undefined)
     await update($, isDetailsOpen, () => keptDetails === true)
+    const keptUpdate = (await $.store.get(UPDATE_STORE_KEY).catch(() => undefined)) as Partial<PluginUpdate> | undefined
+    if (keptUpdate && typeof keptUpdate === 'object') {
+      await update($, pluginUpdate, () => ({
+        isOn: keptUpdate.isOn === true,
+        scope: keptUpdate.scope === 'all' ? 'all' : 'this',
+        checkedAt: typeof keptUpdate.checkedAt === 'number' ? keptUpdate.checkedAt : null,
+        result: typeof keptUpdate.result === 'string' ? keptUpdate.result : '',
+      }))
+    }
+    // Auto-update, in the background: the start does not wait on the network.
+    if (isUpdateDue(await read($, pluginUpdate), startedAt)) void runPluginUpdate($).catch(() => undefined)
     await $.command.register({ name: 'prompt-check', description: 'Open the Prompt check pane with the last corrections Fix English found' }).catch(() => undefined)
     // Asked once per machine: the answer is kept in the plugin store; a setting already off needs no question.
     const settings = (await $.settings.read().catch(() => ({}))) as Record<string, unknown>
@@ -892,6 +967,8 @@ export const register: Register = on => {
     const ho = await read($, handoff)
     const sw = await read($, promptSwitches)
     const isOpen = await read($, isDetailsOpen)
+    const up = await read($, pluginUpdate)
+    const updating = await read($, isUpdating)
     const color = cacheColor(left, isWorking)
 
     const note =
@@ -904,6 +981,7 @@ export const register: Register = on => {
       ...(isAuto ? ['Auto-handoff'] : []),
       ...(sw.fixEnglish ? ['Fix English', ...(sw.inReply ? ['In reply'] : []), ...(sw.inPane ? ['In pane'] : [])] : []),
       ...(sw.shapePrompt ? ['Shape prompt'] : []),
+      ...(up.isOn ? ['Auto-update'] : []),
     ]
     const listText = onList.map(n => `● ${n}`).join('  ')
 
@@ -1068,6 +1146,22 @@ export const register: Register = on => {
           row('in-reply', 'In reply', sw.inReply, () => setPrompt({ inReply: !sw.inReply }), { isSub: true, isInert: !sw.fixEnglish }),
           row('in-pane', 'In pane', sw.inPane, () => setPrompt({ inPane: !sw.inPane }), { isSub: true, isInert: !sw.fixEnglish }),
           row('shape-prompt', 'Shape prompt', sw.shapePrompt, () => setPrompt({ shapePrompt: !sw.shapePrompt })),
+        ])}
+        {box('plugins', 'Plugins', [
+          // Turned on with a check due, the update runs at once; otherwise at the next start.
+          row('auto-update', 'Auto-update', up.isOn, async () => {
+            const value = await savePluginUpdate($, { isOn: !up.isOn })
+            if (isUpdateDue(value, at)) void runPluginUpdate($).catch(() => undefined)
+          }),
+          <Box key="update-scope-row" flexDirection="row" alignItems="center" justifyContent="space-between" columnGap={3} paddingLeft={2} height={1}>
+            <Text dimColor={!up.isOn}>Scope</Text>
+            <Button key="update-scope" label={up.scope === 'this' ? 'this mod' : 'all installed'} plain dimColor={!up.isOn} onPress={() => (up.isOn ? void savePluginUpdate($, { scope: up.scope === 'this' ? 'all' : 'this' }) : undefined)} />
+          </Box>,
+          <Box key="update-status-row" height={1}>
+            <Text color={updating ? AMBER : up.result.includes('ready') ? GREEN : GREY} wrap="truncate">
+              {updating ? '◷ updating…' : up.checkedAt === null ? 'not checked yet' : `checked ${ago(at - up.checkedAt)} · ${up.result}`}
+            </Text>
+          </Box>,
         ])}
       </Box>
     ) : null

@@ -22,7 +22,7 @@ type World = {
 async function session(
   $: Engine,
   on: On,
-  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; context?: Record<string, unknown>; cost?: { usd: number }; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; reply?: string | ((prompt: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean } = {},
+  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; context?: Record<string, unknown>; cost?: { usd: number }; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; run?: (argv: string[]) => Partial<{ exitCode: number; stdout: string; stderr: string }> | undefined; reply?: string | ((prompt: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean } = {},
 ) {
   const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store }, completions: [], opens: [] }
   const clock = mock.clock(on, { now: START })
@@ -85,7 +85,7 @@ async function session(
     world.runs.push(argv)
     const target = argv[argv.length - 1]?.replace(/\\/g, '/')
     if (target) delete world.writes[target]
-    return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
+    return { value: { exitCode: 0, stdout: '', stderr: '', ...opts.run?.(argv) } } as never
   })
   on('session.compact', (_$, e) => {
     world.compacts.push(String((e as { instructions?: string }).instructions))
@@ -652,4 +652,61 @@ test('usage tool: without a reading it says so, and the context and cost show wh
   expect(text).toContain('Usage limits: no reading yet')
   expect(text).toContain('Context window: 123k of 1.0M tokens (12% used)')
   expect(text).toContain('Session cost: ≈$3.21')
+})
+
+const UPDATED = 'Plugin "jimal-session" updated from 0.8.0 to 0.8.1 for scope user. Restart to apply changes.'
+const statusRow = async ($: Engine) => {
+  const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
+  const texts = await ui.findAll({ type: 'Text' })
+  await ui.unmount()
+  return texts.map(t => t.text).find(t => t.startsWith('checked') || t.startsWith('not checked') || t.startsWith('◷ updating'))
+}
+
+test('auto-update: off by default, nothing runs; on with scope this mod, the marketplace and this mod are updated at the start and the result kept', async ($, on) => {
+  const off = await session($, on)
+  expect(off.world.runs.some(argv => argv[1] === 'plugin')).toBe(false)
+})
+
+test('auto-update, this mod: marketplace update, plugin update, a toast and the status row; the store keeps when', async ($, on) => {
+  const { clock, world } = await session($, on, {
+    store: { pluginUpdate: { isOn: true, scope: 'this', checkedAt: null, result: '' } },
+    run: argv => (argv[2] === 'update' && argv[3] === 'jimal-session@ai-workflow-kit' ? { stdout: UPDATED } : undefined),
+  })
+  await clock.advance(10)
+  expect(world.runs).toContainEqual(['claude', 'plugin', 'marketplace', 'update', 'ai-workflow-kit'])
+  expect(world.runs).toContainEqual(['claude', 'plugin', 'update', 'jimal-session@ai-workflow-kit'])
+  expect(world.toasts[0]).toBe('Plugins updated: jimal-session 0.8.0 → 0.8.1. /reload-plugins to apply.')
+  expect(world.store.pluginUpdate).toEqual({ isOn: true, scope: 'this', checkedAt: START, result: 'jimal-session 0.8.0 → 0.8.1 ready · /reload-plugins' })
+  await press($, 'details')
+  expect(await statusRow($)).toBe('checked just now · jimal-session 0.8.0 → 0.8.1 ready · /reload-plugins')
+})
+
+test('auto-update, all installed: every plugin from plugin list --json; nothing new is no toast; a failure goes to the debug log', async ($, on) => {
+  const { clock, world } = await session($, on, {
+    store: { pluginUpdate: { isOn: true, scope: 'all', checkedAt: START - 25 * 60 * MIN, result: 'up to date' } },
+    run: argv =>
+      argv[2] === 'list' ? { stdout: JSON.stringify([{ id: 'a@m' }, { id: 'b@m' }]) } : argv[2] === 'update' && argv[3] === 'b@m' ? { exitCode: 1, stderr: 'network down' } : argv[2] === 'update' ? { stdout: 'already at the latest version (1.0.0)' } : undefined,
+  })
+  await clock.advance(10)
+  expect(world.runs).toContainEqual(['claude', 'plugin', 'marketplace', 'update'])
+  expect(world.runs).toContainEqual(['claude', 'plugin', 'update', 'a@m'])
+  expect(world.runs).toContainEqual(['claude', 'plugin', 'update', 'b@m'])
+  expect(world.toasts).toHaveLength(0)
+  expect((world.store.pluginUpdate as { result: string }).result).toBe('check failed · see debug log')
+})
+
+test('auto-update: a check within the day is skipped; the switch and the Scope button are kept, Scope inert while off', async ($, on) => {
+  const { world } = await session($, on, { store: { pluginUpdate: { isOn: true, scope: 'this', checkedAt: START - 60 * MIN, result: 'up to date' } } })
+  expect(world.runs.some(argv => argv[1] === 'plugin')).toBe(false)
+  await press($, 'details')
+  expect(await statusRow($)).toBe('checked 1h ago · up to date')
+  await press($, 'update-scope')
+  expect((world.store.pluginUpdate as { scope: string }).scope).toBe('all')
+  await press($, 'auto-update')
+  expect((world.store.pluginUpdate as { isOn: boolean }).isOn).toBe(false)
+  await press($, 'update-scope')
+  expect((world.store.pluginUpdate as { scope: string }).scope).toBe('all')
+  // Turned on again with the check an hour old: nothing runs until the next day's start.
+  await press($, 'auto-update')
+  expect(world.runs.some(argv => argv[1] === 'plugin')).toBe(false)
 })
