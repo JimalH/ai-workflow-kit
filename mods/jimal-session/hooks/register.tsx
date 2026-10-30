@@ -818,7 +818,7 @@ export const register: Register = on => {
   // Fix English, while the draft is typed: a keystroke, a paste, a history recall or a fill.
   on('prompt.edit', async ($, e, next) => {
     const r = await next(e)
-    // A bare cursor move changes nothing; a digit in an empty box presses a band hotkey.
+    // A bare cursor move changes nothing; a digit in an empty box answers a survey's button.
     if (r.text !== e.text && !(e.text === '' && /^[0-9]$/.test(r.text))) await scheduleCheck($, r.text)
     return r
   })
@@ -974,8 +974,8 @@ export const register: Register = on => {
     }
     const buttons = (
       <Box key="buttons" flexDirection="row" alignItems="center" columnGap={2} flexShrink={0}>
-        <Button key="handoff-all" label="Handoff all" plain hotkey="h" onPress={() => void requestHandoffAll($).catch(() => undefined)} />
-        <Button key="details" label={`Details ${isOpen ? '▴' : '▾'}`} plain hotkey="d" onPress={() => void setDetails(!isOpen)} />
+        <Button key="handoff-all" label="Handoff all" plain onPress={() => void requestHandoffAll($).catch(() => undefined)} />
+        <Button key="details" label={`Details ${isOpen ? '▴' : '▾'}`} plain onPress={() => void setDetails(!isOpen)} />
       </Box>
     )
 
@@ -1019,12 +1019,12 @@ export const register: Register = on => {
         </Box>
       )
 
-    const row = (key: string, label: string, isOn: boolean, onPress: () => unknown, opts: { isSub?: boolean; isInert?: boolean; hotkey?: string } = {}) => (
+    const row = (key: string, label: string, isOn: boolean, onPress: () => unknown, opts: { isSub?: boolean; isInert?: boolean } = {}) => (
       <Box key={`${key}-row`} flexDirection="row" alignItems="center" justifyContent="space-between" columnGap={3} paddingLeft={opts.isSub ? 2 : 0} height={1}>
         <Text dimColor={!isOn || opts.isInert}>{label}</Text>
         <Box flexDirection="row" alignItems="center" columnGap={1} flexShrink={0}>
           <Text color={isOn && !opts.isInert ? GREEN : GREY}>●</Text>
-          <Button key={key} label={isOn ? 'on' : 'off'} plain dimColor={!isOn || opts.isInert} {...(opts.hotkey && !opts.isInert ? { hotkey: opts.hotkey } : {})} onPress={() => (opts.isInert ? undefined : void onPress())} />
+          <Button key={key} label={isOn ? 'on' : 'off'} plain dimColor={!isOn || opts.isInert} onPress={() => (opts.isInert ? undefined : void onPress())} />
         </Box>
       </Box>
     )
@@ -1043,20 +1043,20 @@ export const register: Register = on => {
             await update($, keepWarm, v => !v)
             await update($, keepWarmUntil, () => (isWarm ? null : at + KEEP_WARM_MAX_MS))
             if (!isWarm) await update($, autoHandoff, () => false)
-          }, { hotkey: 'k' }),
+          }),
           row('auto-handoff', 'Auto-handoff', isAuto, async () => {
             await update($, autoHandoff, v => !v)
             if (!isAuto) {
               await update($, keepWarm, () => false)
               await update($, keepWarmUntil, () => null)
             }
-          }, { hotkey: 'a' }),
+          }),
         ])}
         {box('prompt', 'Prompt', [
-          row('fix-english', 'Fix English', sw.fixEnglish, () => setPrompt({ fixEnglish: !sw.fixEnglish }), { hotkey: 'f' }),
-          row('in-reply', 'In reply', sw.inReply, () => setPrompt({ inReply: !sw.inReply }), { isSub: true, isInert: !sw.fixEnglish, hotkey: 'r' }),
-          row('in-pane', 'In pane', sw.inPane, () => setPrompt({ inPane: !sw.inPane }), { isSub: true, isInert: !sw.fixEnglish, hotkey: 'p' }),
-          row('shape-prompt', 'Shape prompt', sw.shapePrompt, () => setPrompt({ shapePrompt: !sw.shapePrompt }), { hotkey: 's' }),
+          row('fix-english', 'Fix English', sw.fixEnglish, () => setPrompt({ fixEnglish: !sw.fixEnglish })),
+          row('in-reply', 'In reply', sw.inReply, () => setPrompt({ inReply: !sw.inReply }), { isSub: true, isInert: !sw.fixEnglish }),
+          row('in-pane', 'In pane', sw.inPane, () => setPrompt({ inPane: !sw.inPane }), { isSub: true, isInert: !sw.fixEnglish }),
+          row('shape-prompt', 'Shape prompt', sw.shapePrompt, () => setPrompt({ shapePrompt: !sw.shapePrompt })),
         ])}
       </Box>
     ) : null

@@ -599,7 +599,7 @@ test('keep warm: a ping that read no cache turns it off with a toast', async ($,
   expect(world.toasts.some(t => t.startsWith('Keep warm off: the cache was already cold'))).toBe(true)
 })
 
-test('details: the buttons carry hotkeys, none on an inert sub-option', async ($, on) => {
+test('details: no button carries a hotkey (the band must be focused first, so a click is simpler)', async ($, on) => {
   await session($, on)
   await press($, 'details')
   const byKey = async (key: string) => {
@@ -608,12 +608,9 @@ test('details: the buttons carry hotkeys, none on an inert sub-option', async ($
     await ui2.unmount()
     return b?.props.hotkey
   }
-  expect(await byKey('handoff-all')).toBe('h')
-  expect(await byKey('details')).toBe('d')
-  expect(await byKey('keep-warm')).toBe('k')
-  expect(await byKey('fix-english')).toBe('f')
-  expect(await byKey('in-reply')).toBeUndefined()
-  expect(await byKey('shape-prompt')).toBe('s')
+  for (const key of ['handoff-all', 'details', 'keep-warm', 'auto-handoff', 'fix-english', 'in-reply', 'in-pane', 'shape-prompt']) {
+    expect(await byKey(key)).toBeUndefined()
+  }
 })
 
 test('usage tool: the windows, the cache, the context and the switches as text', async ($, on) => {
