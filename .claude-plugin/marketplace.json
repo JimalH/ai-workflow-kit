@@ -12,7 +12,7 @@
       "name": "jimal-progress",
       "source": "./mods/jimal-progress",
       "description": "Mod: progress bar above the prompt with each open task, its own bar and time left; follows the session task list, folds while you type, leaves 30 s after it finishes; plus an agents panel (/agents-info). Fork of savvy-progress.",
-      "version": "1.5.1",
+      "version": "1.6.0",
       "category": "mod"
     },
     {

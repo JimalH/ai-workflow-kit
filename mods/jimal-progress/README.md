@@ -19,7 +19,7 @@ Desktop app: **+** → **Plugins** → **Add marketplace** `JimalH/ai-workflow-k
 ## Tools it adds
 
 - `mcp__jimal-progress__progress`: the main session reports title, phase, total and accepted tasks (`finished: true` at the end). Calls from subagents are ignored.
-- `mcp__jimal-progress__step`: a subagent reports its own steps (`done`, `total`, `note`).
+- `mcp__jimal-progress__step`: a subagent reports its own steps (`done`, `total`, `note`). Every subagent's brief gets a line asking for these reports (unless it already names the tool), so the bar moves without the parent writing it in.
 
 Note: the savvy-flow skill calls `mcp__savvy-progress__progress` by name; with this fork, the tool is `mcp__jimal-progress__progress`.
 
@@ -63,3 +63,8 @@ Changes (1.5.1):
 - The agents pane no longer goes blank ("jimal-progress has not drawn in this pane") when an agent record has no model: a spawn that left the model to the session's default stored `undefined`, and the pane threw on it. The record now stores an empty model, a step that names no model keeps the spawn's, and the readers take an empty model, type or description.
 - A draw that still fails writes the error in the pane instead of leaving it to the engine's placeholder.
 - Tests: a record without a model, and 84 records, draw on the terminal and the desktop.
+
+Changes (1.6.0):
+
+- Every subagent is told to report its steps through `mcp__jimal-progress__step`, not only the savvy-flow workers: a brief of an ordinary agent was not getting the line, so the panel showed the agent running or done but no bar. A brief that already names the tool is left as written.
+- Tests: the line on a general-purpose agent and a savvy worker, and a brief that names the tool.

@@ -1073,7 +1073,7 @@ export const register: Register = (on, options) => {
     await $.tool.register({
       name: 'step',
       description:
-        'For savvy-flow workers: report progress on your own task to the agents panel. ' +
+        'For a subagent: report progress on your own task to the agents panel and the task rows under the progress bar. ' +
         'Right after reading the brief, call it with `total` (your plan in 3-8 steps) and `done: 0`; ' +
         'call it again as each step finishes. Cheap and silent: it only draws a bar.',
       inputSchema: {
@@ -1195,7 +1195,9 @@ export const register: Register = (on, options) => {
   })
 
   on('agent.spawn', async ($, e, next) => {
-    const isUnbriefed = e.subagentType.startsWith('savvy-') && !e.prompt.includes(STEP_TOOL)
+    // Every subagent is told to report its steps, so the panel and the task rows get a bar
+    // without the parent writing it into each brief; one that already names the tool is left alone.
+    const isUnbriefed = !e.prompt.includes(STEP_TOOL)
     const started = await next(isUnbriefed ? { ...e, prompt: e.prompt + STEP_BRIEF } : e)
     if (started.deny !== undefined) return started
 
