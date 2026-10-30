@@ -22,7 +22,7 @@ type World = {
 async function session(
   $: Engine,
   on: On,
-  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; reply?: string | ((prompt: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean } = {},
+  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; context?: Record<string, unknown>; cost?: { usd: number }; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; reply?: string | ((prompt: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean } = {},
 ) {
   const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store }, completions: [], opens: [] }
   const clock = mock.clock(on, { now: START })
@@ -32,7 +32,7 @@ async function session(
   on('session.cwd', () => ({ value: 'E:\\AI workflow' }) as never)
   on('session.id', () => ({ value: 'abcdef1234567890' }) as never)
   on('session.turns', () => ({ value: 3 }) as never)
-  on('session.usage', () => ({ value: { startedAt: START, context: {}, rateLimits: opts.noUsage ? [] : [
+  on('session.usage', () => ({ value: { startedAt: START, context: opts.context ?? {}, ...(opts.cost ? { cost: opts.cost } : {}), rateLimits: opts.noUsage ? [] : [
     { kind: 'five_hour', percentUsed: 38, resetsAt: new Date(START + 3 * 60 * MIN - 1).toISOString() },
     { kind: 'seven_day', percentUsed: 20, resetsAt: new Date(START + (opts.weekLeftMs ?? 4 * 24 * 60 * MIN - 1)).toISOString() },
   ] } }) as never)
@@ -614,4 +614,32 @@ test('details: the buttons carry hotkeys, none on an inert sub-option', async ($
   expect(await byKey('fix-english')).toBe('f')
   expect(await byKey('in-reply')).toBeUndefined()
   expect(await byKey('shape-prompt')).toBe('s')
+})
+
+test('usage tool: the windows, the cache, the context and the switches as text', async ($, on) => {
+  const { clock } = await session($, on)
+  const call = async () => String(((await $.tool.call({ tool: 'mcp__jimal-session__usage' } as never)) as { result: string }).result)
+
+  // Before the first answer: the windows read, the cache cold.
+  let text = await call()
+  expect(text).toContain('5-hour window: 38% used, 62% left, resets in 3h 0m')
+  expect(text).toContain('weekly window: 20% used, 80% left, resets in 4d 0h')
+  expect(text).toContain('Prompt cache: cold (no answer yet)')
+  expect(text).toContain('Switches: Keep warm off, Auto-handoff off')
+
+  // After an answer the cache is warm with its hour; an hour on, expired.
+  await answer($)
+  await clock.advance(20 * MIN)
+  text = await call()
+  expect(text).toContain('Prompt cache: warm, 40m left')
+  await clock.advance(41 * MIN)
+  expect(await call()).toContain('Prompt cache: expired')
+})
+
+test('usage tool: without a reading it says so, and the context and cost show when the host gives them', async ($, on) => {
+  await session($, on, { noUsage: true, context: { tokens: 123456, window: 1000000, percent: 12 }, cost: { usd: 3.21 } })
+  const text = String(((await $.tool.call({ tool: 'mcp__jimal-session__usage' } as never)) as { result: string }).result)
+  expect(text).toContain('Usage limits: no reading yet')
+  expect(text).toContain('Context window: 123k of 1.0M tokens (12% used)')
+  expect(text).toContain('Session cost: ≈$3.21')
 })

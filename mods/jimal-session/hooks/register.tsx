@@ -604,6 +604,55 @@ const fixContext = (marked: string) =>
 const shapeContext = (original: string) =>
   ['[jimal-session] The prompt above was restructured by a small model from what the person typed, which follows; where the two differ, what they typed is what they meant.', '', original].join('\n')
 
+// ---------------------------------------------------------------------------
+// The `usage` tool: the band's figures as text the model can read, for when the person
+// asks about their limits, the cache or the cost (the band is drawn for the person alone).
+
+const USAGE_TOOL = 'usage'
+
+const fmtLeft = (ms: number): string => {
+  const m = Math.max(0, Math.ceil(ms / (60 * 1000)))
+  const d = Math.floor(m / (24 * 60))
+  const h = Math.floor((m % (24 * 60)) / 60)
+  const min = m % 60
+  return d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${min}m` : `${min}m`
+}
+
+const windowName = (kind: string): string =>
+  kind === 'five_hour' ? '5-hour window' : kind === 'seven_day' ? 'weekly window' : kind.replace(/_/g, ' ')
+
+const windowLine = (w: RateWindow, at: number): string => {
+  const reset = w.resetsAt ? Date.parse(w.resetsAt) : NaN
+  const when = Number.isFinite(reset) ? `, resets in ${fmtLeft(reset - at)} (${new Date(reset).toISOString()})` : ''
+  return `${windowName(w.kind)}: ${Math.round(w.percentUsed)}% used, ${Math.max(0, Math.round(100 - w.percentUsed))}% left${when}`
+}
+
+const fmtK = (n: number): string => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`)
+
+const usageReport = async ($: EngineInterface): Promise<string> => {
+  const at = await $.clock.now()
+  const fresh = await $.session.usage().catch(() => null)
+  // The last reading the band kept stands in where the host has none to give.
+  const limits = fresh?.rateLimits?.length ? fresh.rateLimits : await read($, rateLimits)
+  const lines: string[] = []
+  if (limits.length) for (const w of limits) lines.push(windowLine(w, at))
+  else lines.push('Usage limits: no reading yet (the first answer of the session brings one).')
+  const expires = await read($, expiresAt)
+  const left = expires === null ? null : expires - at
+  const cache = cacheText(left, await read($, isBusy))
+  lines.push(`Prompt cache: ${cache === 'cache cold' ? 'cold (no answer yet)' : cache === 'cache expired' ? 'expired' : left === null ? 'warm' : `warm, ${fmtLeft(left)} left`}`)
+  const ctx = fresh?.context
+  if (ctx && ctx.window) {
+    const pct = ctx.percent ?? (ctx.tokens !== undefined ? Math.round((ctx.tokens / ctx.window) * 100) : undefined)
+    lines.push(`Context window: ${ctx.tokens !== undefined ? `${fmtK(ctx.tokens)} of ` : ''}${fmtK(ctx.window)} tokens${pct !== undefined ? ` (${pct}% used)` : ''}`)
+  }
+  if (fresh?.cost) lines.push(`Session cost: ≈$${fresh.cost.usd.toFixed(2)}`)
+  const warm = await read($, keepWarm)
+  const auto = await read($, autoHandoff)
+  lines.push(`Switches: Keep warm ${warm ? 'on' : 'off'}, Auto-handoff ${auto ? 'on' : 'off'}`)
+  return lines.join('\n')
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -628,6 +677,14 @@ export const register: Register = on => {
     const settings = (await $.settings.read().catch(() => ({}))) as Record<string, unknown>
     const choice = await $.store.get('idleCompaction').catch(() => undefined)
     await update($, idleAsk, () => settings.idleCompaction !== false && choice === undefined)
+    await $.tool.register({
+      name: USAGE_TOOL,
+      description:
+        "Read this session's usage: the 5-hour and weekly rate-limit windows (percent used, time until they reset), " +
+        'the prompt-cache state, the context window fill and the session cost so far. ' +
+        'Call it when the person asks about their usage, limits, quota, cache or cost; it takes no input.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    }).catch(() => undefined)
     await $.command.register({
       name: 'handoff-now',
       description: 'Write a handover note now and let it replace this conversation\'s context (old messages stay on screen); says whether it worked',
@@ -662,6 +719,8 @@ export const register: Register = on => {
     await keepLimits($, e.rateLimits)
     return next(e)
   })
+
+  on('tool.call', { tool: `mcp__jimal-session__${USAGE_TOOL}` }, async $ => ({ result: await usageReport($) }))
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) await update($, isBusy, () => true)

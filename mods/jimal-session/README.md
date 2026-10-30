@@ -19,6 +19,10 @@ A Claude Code mod: one band above the prompt with the session's clock and limits
   - Notes older than 30 days are deleted when a session starts. No note found: everything works as without the mod.
   - Closing the app: the host does not wait for a mod's `session.end` hook (not even a few seconds), so no note can be written on the way out. Press `Handoff all` first.
 
+## Tool
+
+`usage` (`mcp__jimal-session__usage`, no input): the band's figures as text for the model, so Claude can answer "how much of my limit is left?" in the CLI too, where it cannot see the band: each rate-limit window with its percent used, percent left and time until it resets; the prompt cache (cold, warm with the time left, or expired); the context window fill; the session's cost where the host keeps one; and whether Keep warm and Auto-handoff are on. A fresh reading is taken from the host; the band's last one stands in where there is none.
+
 ## Commands
 
 `/prompt-check`: open the Prompt check pane with the last corrections Fix English found.
@@ -143,6 +147,11 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 ## Changes (0.6.2)
 
 - On the desktop the cache dot and its text are one SVG drawn as the progress bar draws its row (22 px high, a 4 px dot at x=5, 13 px text from x=16 in the system font), so the dot sits on the text's centre line and lines up with the progress bar's.
+
+## Changes (0.7.0)
+
+- A `usage` tool for the model: the rate-limit windows, the prompt cache, the context window, the session cost and the Keep warm / Auto-handoff switches as text, so Claude can answer about the limits in the CLI, where the band is drawn for the person alone.
+- Tests: the tool's report with a reading, without one, and with the cache expired.
 
 ## Changes (0.6.3)
 
