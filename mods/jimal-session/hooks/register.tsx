@@ -766,7 +766,7 @@ export const register: Register = on => {
     await $.tool.register({
       name: USAGE_TOOL,
       description:
-        "Read this session's usage: the 5-hour and weekly rate-limit windows (percent used, time until they reset), " +
+        "Read this session's usage: the rate-limit windows the plan has (the weekly one, and the 5-hour one where the plan has it: percent used, time until they reset), " +
         'the prompt-cache state, the context window fill and the session cost so far. ' +
         'Call it when the person asks about their usage, limits, quota, cache or cost; it takes no input.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -1071,8 +1071,9 @@ export const register: Register = on => {
     // Details: one bordered box a group, its switches a row each, one cell high as the band's
     // row: the name at the left, a dot and a plain `on` / `off` button at the right (the dot
     // green while on, since a button's label takes no colour). In reply and In pane hang
-    // under Fix English and are dim and inert while it is off. The boxes stand in a row and
-    // wrap when the row is short.
+    // under Fix English and are dim and inert while it is off. Session and Plugins stand in a
+    // column one row apart, Prompt beside them; the column and Prompt wrap when the row is
+    // short, so the gaps between boxes stay fixed instead of following the tallest box.
     const setPrompt = async (patch: Partial<PromptSwitches>) => {
       const value = await update($, promptSwitches, prev => ({ ...prev, ...patch }))
       await $.store.set(PROMPT_STORE_KEY, value).catch(() => undefined)
@@ -1124,7 +1125,8 @@ export const register: Register = on => {
       </Box>
     )
     const details = isOpen ? (
-      <Box key="details" flexDirection="row" flexWrap="wrap" alignItems="flex-start" columnGap={1} rowGap={0} paddingX={1}>
+      <Box key="details" flexDirection="row" flexWrap="wrap" alignItems="flex-start" columnGap={1} rowGap={1} paddingX={1}>
+        <Box key="left-boxes" flexDirection="column" rowGap={1} flexShrink={0}>
         {box('session', 'Session', [
           // Keep warm and Auto-handoff exclude each other: turning one on turns the other off.
           // Keep warm runs for KEEP_WARM_MAX_MS at most, then turns itself off (tick).
@@ -1141,12 +1143,6 @@ export const register: Register = on => {
             }
           }),
         ])}
-        {box('prompt', 'Prompt', [
-          row('fix-english', 'Fix English', sw.fixEnglish, () => setPrompt({ fixEnglish: !sw.fixEnglish })),
-          row('in-reply', 'In reply', sw.inReply, () => setPrompt({ inReply: !sw.inReply }), { isSub: true, isInert: !sw.fixEnglish }),
-          row('in-pane', 'In pane', sw.inPane, () => setPrompt({ inPane: !sw.inPane }), { isSub: true, isInert: !sw.fixEnglish }),
-          row('shape-prompt', 'Shape prompt', sw.shapePrompt, () => setPrompt({ shapePrompt: !sw.shapePrompt })),
-        ])}
         {box('plugins', 'Plugins', [
           // Turned on with a check due, the update runs at once; otherwise at the next start.
           row('auto-update', 'Auto-update', up.isOn, async () => {
@@ -1162,6 +1158,13 @@ export const register: Register = on => {
               {updating ? '◷ updating…' : up.checkedAt === null ? 'not checked yet' : `checked ${ago(at - up.checkedAt)} · ${up.result}`}
             </Text>
           </Box>,
+        ])}
+        </Box>
+        {box('prompt', 'Prompt', [
+          row('fix-english', 'Fix English', sw.fixEnglish, () => setPrompt({ fixEnglish: !sw.fixEnglish })),
+          row('in-reply', 'In reply', sw.inReply, () => setPrompt({ inReply: !sw.inReply }), { isSub: true, isInert: !sw.fixEnglish }),
+          row('in-pane', 'In pane', sw.inPane, () => setPrompt({ inPane: !sw.inPane }), { isSub: true, isInert: !sw.fixEnglish }),
+          row('shape-prompt', 'Shape prompt', sw.shapePrompt, () => setPrompt({ shapePrompt: !sw.shapePrompt })),
         ])}
       </Box>
     ) : null

@@ -22,7 +22,7 @@ type World = {
 async function session(
   $: Engine,
   on: On,
-  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; context?: Record<string, unknown>; cost?: { usd: number }; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; run?: (argv: string[]) => Partial<{ exitCode: number; stdout: string; stderr: string }> | undefined; reply?: string | ((prompt: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean } = {},
+  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; weekOnly?: boolean; context?: Record<string, unknown>; cost?: { usd: number }; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; run?: (argv: string[]) => Partial<{ exitCode: number; stdout: string; stderr: string }> | undefined; reply?: string | ((prompt: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean } = {},
 ) {
   const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store }, completions: [], opens: [] }
   const clock = mock.clock(on, { now: START })
@@ -33,7 +33,7 @@ async function session(
   on('session.id', () => ({ value: 'abcdef1234567890' }) as never)
   on('session.turns', () => ({ value: 3 }) as never)
   on('session.usage', () => ({ value: { startedAt: START, context: opts.context ?? {}, ...(opts.cost ? { cost: opts.cost } : {}), rateLimits: opts.noUsage ? [] : [
-    { kind: 'five_hour', percentUsed: 38, resetsAt: new Date(START + 3 * 60 * MIN - 1).toISOString() },
+    ...(opts.weekOnly ? [] : [{ kind: 'five_hour', percentUsed: 38, resetsAt: new Date(START + 3 * 60 * MIN - 1).toISOString() }]),
     { kind: 'seven_day', percentUsed: 20, resetsAt: new Date(START + (opts.weekLeftMs ?? 4 * 24 * 60 * MIN - 1)).toISOString() },
   ] } }) as never)
   on('model.complete', async (_$, e) => {
@@ -709,4 +709,33 @@ test('auto-update: a check within the day is skipped; the switch and the Scope b
   // Turned on again with the check an hour old: nothing runs until the next day's start.
   await press($, 'auto-update')
   expect(world.runs.some(argv => argv[1] === 'plugin')).toBe(false)
+})
+
+test('a plan with the weekly limit alone: the band shows the week by itself, and the usage tool lists the weekly window only', async ($, on) => {
+  await session($, on, { weekOnly: true })
+  const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  await ui.unmount()
+  expect(texts).toContain('4d')
+  expect(texts).toContain('80%')
+  expect(texts).not.toContain('·')
+  expect(texts).not.toContain('62%')
+  const text = String(((await $.tool.call({ tool: 'mcp__jimal-session__usage' } as never)) as { result: string }).result)
+  expect(text).toContain('weekly window: 20% used, 80% left')
+  expect(text).not.toContain('5-hour window')
+})
+
+test('details: Session and Plugins stand in one column, Prompt beside it', async ($, on) => {
+  await session($, on)
+  await press($, 'details')
+  const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', ...BAND })
+  const column = await ui.find({ key: 'left-boxes' })
+  const prompt = await ui.find({ key: 'prompt-box' })
+  await ui.unmount()
+  expect(column).toBeTruthy()
+  expect(prompt).toBeTruthy()
+  const inside = JSON.stringify(column)
+  expect(inside).toContain('session-box')
+  expect(inside).toContain('plugins-box')
+  expect(inside).not.toContain('prompt-box')
 })
