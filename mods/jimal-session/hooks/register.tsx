@@ -1072,8 +1072,11 @@ export const register: Register = on => {
     // row: the name at the left, a dot and a plain `on` / `off` button at the right (the dot
     // green while on, since a button's label takes no colour). In reply and In pane hang
     // under Fix English and are dim and inert while it is off. Session and Plugins stand in a
-    // column one row apart, Prompt beside them; the column and Prompt wrap when the row is
-    // short, so the gaps between boxes stay fixed instead of following the tallest box.
+    // column, Prompt beside them; the column and Prompt wrap when the row is short, so the
+    // gaps between boxes stay fixed instead of following the tallest box. The gap is the
+    // same across and down: on the desktop the `xs` step, a few pixels either way; on the
+    // terminal one cell, since a row is the smallest step down there (`xs` would be none).
+    const gap = e.surface === 'terminal' ? 1 : 'xs'
     const setPrompt = async (patch: Partial<PromptSwitches>) => {
       const value = await update($, promptSwitches, prev => ({ ...prev, ...patch }))
       await $.store.set(PROMPT_STORE_KEY, value).catch(() => undefined)
@@ -1125,8 +1128,8 @@ export const register: Register = on => {
       </Box>
     )
     const details = isOpen ? (
-      <Box key="details" flexDirection="row" flexWrap="wrap" alignItems="flex-start" columnGap={1} rowGap={1} paddingX={1}>
-        <Box key="left-boxes" flexDirection="column" rowGap={1} flexShrink={0}>
+      <Box key="details" flexDirection="row" flexWrap="wrap" alignItems="flex-start" columnGap={gap} rowGap={gap} paddingX={1}>
+        <Box key="left-boxes" flexDirection="column" rowGap={gap} flexShrink={0}>
         {box('session', 'Session', [
           // Keep warm and Auto-handoff exclude each other: turning one on turns the other off.
           // Keep warm runs for KEEP_WARM_MAX_MS at most, then turns itself off (tick).

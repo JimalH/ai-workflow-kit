@@ -734,6 +734,7 @@ test('details: Session and Plugins stand in one column, Prompt beside it', async
   await ui.unmount()
   expect(column).toBeTruthy()
   expect(prompt).toBeTruthy()
+  expect((column as { props: { rowGap?: unknown } }).props.rowGap).toBe('xs')
   const inside = JSON.stringify(column)
   expect(inside).toContain('session-box')
   expect(inside).toContain('plugins-box')
