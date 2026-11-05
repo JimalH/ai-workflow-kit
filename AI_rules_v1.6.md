@@ -226,8 +226,8 @@ A mod changes Claude Code's own interface or behaviour (pane, band above the pro
 - Path: `<PROJECT_ROOT>/MODULE_MAP.md` (Markdown only; HTML costs more tokens and cannot
   be read in line ranges).
 - Generated, never hand-edited. Agents do not write to it; they run the generator.
-- Header: generation time, git commit, file count, line count, and the exact command that
-  regenerates it.
+- Header: generation time, the git commit it was generated at, file count, line count, and
+  the exact command that regenerates it.
 - One block per source file, in a fixed sorted order (small diffs):
   - file line: path - one-line purpose (first line of the module docstring) -
     `imports:` the project-internal modules it imports - `+N private` helper count
@@ -248,9 +248,9 @@ A mod changes Claude Code's own interface or behaviour (pane, band above the pro
 
 ### 9.3 Generator
 
-- Script at `<PROJECT_ROOT>/tools/gen_module_map.py` (or the kit's reference
-  implementation). Python: parse with `ast`, never import the modules. Other languages:
-  tree-sitter or the language's own parser.
+- Script at `<PROJECT_ROOT>/tools/gen_module_map.py`; the kit ships a reference
+  implementation at `tools/gen_module_map.py` (copy it in). Python: parse with `ast`, never
+  import the modules. Other languages: tree-sitter or the language's own parser.
 - Deterministic output. `--check` exits non-zero when the committed map is stale.
 - Run it: in the same close-out step as `CHANGELOG.md` after every change set; once by the
   Integrator after a merge; before commit (pre-commit hook recommended).
@@ -258,7 +258,7 @@ A mod changes Claude Code's own interface or behaviour (pane, band above the pro
 ### 9.4 Read protocol (Hard Rule for projects with a map)
 
 1. Start of any code task: read `MODULE_MAP.md` (after `PROJECT_MEMORY.md`, before the
-   changelog). If `--check` fails or the header commit is not `HEAD`, regenerate first.
+   changelog). If `--check` fails, regenerate first.
 2. Pick files from the map. Read a symbol by its line range (its `L` number up to the next
    symbol's), not the whole file.
 3. Read a file in full only when you will edit it (Post-Change Verification still requires
