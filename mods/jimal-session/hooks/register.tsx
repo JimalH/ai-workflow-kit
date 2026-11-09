@@ -1156,6 +1156,8 @@ export const register: Register = on => {
     const setPrompt = async (patch: Partial<PromptSwitches>) => {
       const value = await update($, promptSwitches, prev => ({ ...prev, ...patch }))
       await $.store.set(PROMPT_STORE_KEY, value).catch(() => undefined)
+      // In pane or Fix English turned off: the Prompt check pane goes too, not only the next one.
+      if ((patch.inPane === false && !value.inPane) || (patch.fixEnglish === false && !value.fixEnglish)) await $.ui.close({ id: PANE }).catch(() => undefined)
     }
     // The draft's check, under the row while Fix English is on: checking, no issues, or the
     // corrections inline (removed red and struck through, added green); dim once sent.

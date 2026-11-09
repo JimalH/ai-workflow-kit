@@ -16,6 +16,7 @@ type World = {
   store: Record<string, unknown>
   completions: { system: string; prompt: string }[]
   opens: string[]
+  closes: string[]
 }
 
 // A session in E:\AI workflow on Windows, with the fork, files and commands recorded.
@@ -24,7 +25,7 @@ async function session(
   on: On,
   opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; weekOnly?: boolean; context?: Record<string, unknown>; cost?: { usd: number }; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; run?: (argv: string[]) => Partial<{ exitCode: number; stdout: string; stderr: string }> | undefined; reply?: string | ((prompt: string, system: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean } = {},
 ) {
-  const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store }, completions: [], opens: [] }
+  const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store }, completions: [], opens: [], closes: [] }
   const clock = mock.clock(on, { now: START })
   mock.env(on, { USERPROFILE: 'C:\\Users\\me' })
   on('session.start', async () => ({ cwd: 'E:\\AI workflow' }) as never)
@@ -48,6 +49,10 @@ async function session(
   on('ui.open', (_$, e) => {
     world.opens.push((e as { id: string }).id)
     return { value: { isPlaced: true } } as never
+  })
+  on('ui.close', (_$, e) => {
+    world.closes.push((e as { id: string }).id)
+    return { value: undefined } as never
   })
   on('model.fork', (_$, e) => {
     world.forks.push((e as { prompt: string }).prompt)
@@ -220,8 +225,16 @@ test('band: Details folded draws no switch; unfolded, each is an On/Off button, 
   // The prompt switches are kept in the store; In reply and In pane sit under Fix English.
   await press($, 'fix-english')
   expect(world.store.prompt).toEqual({ fixEnglish: true, inReply: true, inPane: true, shapePrompt: false })
+  expect(world.closes).toEqual([])
   await press($, 'in-pane')
   expect(world.store.prompt).toEqual({ fixEnglish: true, inReply: true, inPane: false, shapePrompt: false })
+  // Turning In pane off closes the Prompt check pane already open; so does Fix English off.
+  expect(world.closes).toEqual(['jimal-session-check'])
+  await press($, 'in-pane')
+  expect(world.closes).toEqual(['jimal-session-check'])
+  await press($, 'fix-english')
+  expect(world.closes).toEqual(['jimal-session-check', 'jimal-session-check'])
+  await press($, 'fix-english')
 
   await press($, 'details')
   expect(await stateOf($, 'keep-warm')).toBeNull()
