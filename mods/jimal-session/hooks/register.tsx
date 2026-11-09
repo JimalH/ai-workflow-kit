@@ -844,38 +844,42 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     if (e.command || e.isMeta) return next(e)
-    // Fix English and Shape prompt on the prompt as typed (see the helpers above); a note
-    // loaded for a fresh conversation goes as it is.
+    // Fix English and Shape prompt on the prompt as typed, both when both are on (see the
+    // helpers above); a note loaded for a fresh conversation goes as it is.
     const withPrompt = async (p: typeof e) => {
       const e = p
       if (e.command || e.isMeta || e.origin?.kind === 'plugin') return next(e)
       const sw = await read($, promptSwitches)
       const text = e.text
-
-      // Shaped (the switch on, or the prompt ending in `++`): the prompt goes as typed, the
-      // arranged version rides beside it.
+      // The prompt as typed, without the `++` that asks for shaping; it is what goes to the model.
       const isMarked = SHAPE_MARK.test(text)
       const body = isMarked ? text.replace(SHAPE_MARK, '') : text
-      if ((sw.shapePrompt || isMarked) && body.trim().length >= MIN_SHAPE_CHARS) {
-        const shaped = await shapeText($, body).catch(() => null)
-        if (shaped) return next({ ...e, text: body, context: [...(e.context ?? []), shapeContext(shaped)] })
-        return next({ ...e, text: body })
-      }
+      const added: string[] = []
 
-      if (sw.fixEnglish && isEnglish(text) && (sw.inReply || sw.inPane)) {
-        // The draft's check stands for the text as sent; another is run only when it differs.
+      // Fix English first: the draft's check, usually ready by Enter, stands for the text as
+      // sent; another is run only when it differs. It runs whether or not the prompt is shaped.
+      if (sw.fixEnglish && isEnglish(body) && (sw.inReply || sw.inPane)) {
         checkTimer?.cancel()
         checkTimer = null
         checkSeq += 1
         const live = await read($, check)
-        const segments = live && live.text === draftOf(text) && live.status !== 'checking' ? live.segments : ((await proofread($, text.trim()).catch(() => null)) ?? [])
+        const segments = live && live.text === draftOf(text) && live.status !== 'checking' ? live.segments : ((await proofread($, body.trim()).catch(() => null)) ?? [])
         await update($, check, () => ({ segments, text: draftOf(text), status: 'submitted' }))
         if (segments.length > 0) {
           if (sw.inPane) await $.ui.open({ id: PANE, title: 'Prompt check' }).catch(() => undefined)
-          if (sw.inReply) return next({ ...e, context: [...(e.context ?? []), fixContext(markChanges(segments))] })
+          if (sw.inReply) added.push(fixContext(markChanges(segments)))
         }
       }
-      return next(e)
+
+      // Shaped (the switch on, or the prompt ending in `++`): the prompt goes as typed, the
+      // arranged version rides beside it, after the corrections.
+      if ((sw.shapePrompt || isMarked) && body.trim().length >= MIN_SHAPE_CHARS) {
+        const shaped = await shapeText($, body).catch(() => null)
+        if (shaped) added.push(shapeContext(shaped))
+      }
+
+      if (body === text && added.length === 0) return next(e)
+      return next({ ...e, text: body, ...(added.length > 0 ? { context: [...(e.context ?? []), ...added] } : {}) })
     }
     const ho = await read($, handoff)
 

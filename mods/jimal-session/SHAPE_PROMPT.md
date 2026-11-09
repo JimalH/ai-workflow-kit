@@ -70,7 +70,7 @@ Reply with the formatted message, or the unchanged original, and nothing else: n
 
 1. `isShaped` 现在只认开头的 `Goal` / `目标`，要改成认 `Tasks` / `Task` / `Questions` / `任务` / `问题`（粗体或井号标题都算）。
 2. 加一道长度保险：整理结果比原文长出 50% 加 200 字以上，视为填充，按原文发出。
-3. 整理不再纠错后，Fix English 对英文提示词仍按原文检查（现在 shaped 的提示词跳过了 Fix English，这一条可以保留，也可以改为两者都跑；建议保留，省一次调用）。
+3. 整理不再纠错后，Fix English 对英文提示词仍按原文检查。0.9.3 起两者都跑：先 Fix English（多数时候复用输入时已做好的检查），再整理，纠错在前、整理结果在后；0.8.0 的「shaped 就跳过 Fix English」作废，因为两个开关都开时纠错从不送达模型。
 4. 终端与桌面显示不一致：改写在 `prompt.submit` 发生，引擎存的是改写后的行，终端画存的行，桌面画自己输入框里的原文。原文为主后两边一致。
 
 ## 来源

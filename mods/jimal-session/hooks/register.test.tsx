@@ -22,7 +22,7 @@ type World = {
 async function session(
   $: Engine,
   on: On,
-  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; weekOnly?: boolean; context?: Record<string, unknown>; cost?: { usd: number }; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; run?: (argv: string[]) => Partial<{ exitCode: number; stdout: string; stderr: string }> | undefined; reply?: string | ((prompt: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean } = {},
+  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; weekOnly?: boolean; context?: Record<string, unknown>; cost?: { usd: number }; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; run?: (argv: string[]) => Partial<{ exitCode: number; stdout: string; stderr: string }> | undefined; reply?: string | ((prompt: string, system: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean } = {},
 ) {
   const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store }, completions: [], opens: [] }
   const clock = mock.clock(on, { now: START })
@@ -42,7 +42,7 @@ async function session(
     // A slow model: the clock runs on while the call is out.
     if (opts.delayMs) await clock.advance(opts.delayMs)
     if (opts.fail) return { value: { isAnswered: false, reason: 'api-error', status: 529, error: 'overloaded', usage: {} } } as never
-    const text = typeof opts.reply === 'function' ? opts.reply(prompt) : (opts.reply ?? prompt)
+    const text = typeof opts.reply === 'function' ? opts.reply(prompt, system) : (opts.reply ?? prompt)
     return { value: { isAnswered: true, text, usage: {} } } as never
   })
   on('ui.open', (_$, e) => {
@@ -498,8 +498,8 @@ test('fix English: a failed call lets the prompt through with a toast', async ($
   expect(world.toasts[0]).toMatch(/^Fix English: API error 529/)
 })
 
-test('shape prompt: the prompt goes as typed, the arranged version beside it; a shaped prompt is not proofread again', async ($, on) => {
-  const { world } = await session($, on, { reply: '**Tasks**\n1. make teh page faster\n\n**Context**\nit is slow', store: { prompt: { ...PROMPT_ON, fixEnglish: true, shapePrompt: true } } })
+test('shape prompt: the prompt goes as typed, the arranged version beside it', async ($, on) => {
+  const { world } = await session($, on, { reply: '**Tasks**\n1. make teh page faster\n\n**Context**\nit is slow', store: { prompt: { ...PROMPT_ON, shapePrompt: true } } })
   const out = await submit($, 'make teh page faster, it is slow')
   expect(out.drop).toBeUndefined()
   expect(out.text).toBe('make teh page faster, it is slow')
@@ -507,6 +507,27 @@ test('shape prompt: the prompt goes as typed, the arranged version beside it; a 
   expect(out.context?.[0]).toContain('**Tasks**\n1. make teh page faster\n\n**Context**\nit is slow')
   expect(world.completions).toHaveLength(1)
   expect(world.completions[0]?.system).toMatch(/extractive organiser/)
+})
+
+test('shape prompt with Fix English on: both run, the corrections first and the arrangement after', async ($, on) => {
+  const shaped = '**Tasks**\n1. make teh page faster\n\n**Context**\nit is slow'
+  const { world } = await session($, on, { reply: (p, system) => (/extractive organiser/.test(system) ? shaped : p.replace('teh', 'the')), store: { prompt: { ...PROMPT_ON, fixEnglish: true, shapePrompt: true } } })
+  const out = await submit($, 'make teh page faster, it is slow')
+  expect(out.text).toBe('make teh page faster, it is slow')
+  expect(out.context).toHaveLength(2)
+  expect(out.context?.[0]).toContain('~~teh~~ **the**')
+  expect(out.context?.[1]).toContain('arranged the prompt above into sections')
+  expect(world.completions.map(c => (/extractive organiser/.test(c.system) ? 'shape' : 'fix'))).toEqual(['fix', 'shape'])
+  expect(world.opens).toEqual(['jimal-session-check'])
+})
+
+test('shape prompt with Fix English on: a prompt the organiser gives back unchanged still gets its corrections', async ($, on) => {
+  const { world } = await session($, on, { reply: (p, system) => (/extractive organiser/.test(system) ? p : p.replace('teh', 'the')), store: { prompt: { ...PROMPT_ON, fixEnglish: true, shapePrompt: true } } })
+  const out = await submit($, 'now make teh footer faster too')
+  expect(out.text).toBe('now make teh footer faster too')
+  expect(out.context).toHaveLength(1)
+  expect(out.context?.[0]).toContain('~~teh~~ **the**')
+  expect(world.completions).toHaveLength(2)
 })
 
 test('shape prompt: a reply with no heading or list, or padded past the original, sends the prompt alone', async ($, on) => {

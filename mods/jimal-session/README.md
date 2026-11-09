@@ -182,3 +182,7 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 ## Changes (0.9.2)
 
 - The gaps between the Details boxes are the same across and down: on the desktop the `xs` step (a few pixels), instead of one row down and one cell across; the terminal keeps one cell each way, a row being its smallest step down.
+
+## Changes (0.9.3)
+
+- Fix English and Shape prompt both run when both are on: the corrections ride first, the arranged sections after. Before, a prompt that went to Shape prompt skipped Fix English, so with both switches on no corrections reached the model; a prompt the organiser gives back unchanged (a short follow-up) now gets its corrections too.
