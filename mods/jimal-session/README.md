@@ -186,3 +186,4 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 ## Changes (0.9.3)
 
 - Fix English and Shape prompt both run when both are on: the corrections ride first, the arranged sections after. Before, a prompt that went to Shape prompt skipped Fix English, so with both switches on no corrections reached the model; a prompt the organiser gives back unchanged (a short follow-up) now gets its corrections too.
+- Fix English no longer marks a capital at a sentence start or a full stop at the end of a word: the corrected text has them, unmarked, and a prompt whose only changes are those gets no check at all.

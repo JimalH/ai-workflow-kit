@@ -461,6 +461,12 @@ const SHAPE_SYSTEM = [
 // and the transcript can mark them. Tokens are words and the whitespace between.
 const tokens = (text: string): string[] => text.split(/(\s+)/).filter(t => t !== '')
 
+// Two words the person would not count as a correction: the same apart from the case of the
+// first letter (a sentence start) and one full stop at the end. The corrected form is shown
+// without a mark.
+const minorForm = (t: string) => t.replace(/^\p{L}/u, c => c.toLowerCase()).replace(/(?<!\.)\.$/, '')
+const sameWord = (x: string, y: string) => x === y || (!/^\s+$/.test(x) && minorForm(x) === minorForm(y) && minorForm(x) !== '')
+
 export const diffWords = (before: string, after: string): Segment[] => {
   const a = tokens(before)
   const b = tokens(after)
@@ -470,7 +476,7 @@ export const diffWords = (before: string, after: string): Segment[] => {
   const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0))
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
-      dp[i]![j] = a[i] === b[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!)
+      dp[i]![j] = sameWord(a[i]!, b[j]!) ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!)
     }
   }
   const out: Segment[] = []
@@ -500,14 +506,15 @@ export const diffWords = (before: string, after: string): Segment[] => {
   let i = 0
   let j = 0
   while (i < n && j < m) {
-    if (a[i] === b[j]) {
+    if (sameWord(a[i]!, b[j]!)) {
       if (/^\s+$/.test(a[i]!) && (del.length || ins.length)) {
         // Whitespace between two changed words stays inside the change.
         del.push(a[i]!)
         ins.push(b[j]!)
       } else {
         flush()
-        push('same', a[i]!)
+        // The corrected form, when it differs only in a minor way.
+        push('same', b[j]!)
       }
       i++
       j++
@@ -563,7 +570,10 @@ const proofread = async ($: EngineInterface, text: string): Promise<Segment[] | 
       return null
     }
     const fixed = r.text.trim()
-    return sameWords(fixed, text) ? null : diffWords(text.trim(), fixed)
+    if (sameWords(fixed, text)) return null
+    // Only minor changes (a sentence start's capital, a closing full stop): nothing to show.
+    const segments = diffWords(text.trim(), fixed)
+    return segments.some(s => s.kind !== 'same') ? segments : null
   })
 
 // A shaped reply opens with one of the headings asked for, or with a list.

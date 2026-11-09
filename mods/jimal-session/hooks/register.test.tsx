@@ -459,6 +459,21 @@ test('diff: a misspelt word is removed and its correction added; spacing and lin
   expect(diffWords('same text', 'same text')).toEqual([{ kind: 'same', text: 'same text' }])
 })
 
+test('diff: a sentence start\'s capital and a closing full stop are corrected without a mark', () => {
+  expect(markChanges(diffWords('looks good now, help me push it', 'Looks good now. Help me push it.'))).toBe('Looks good ~~now,~~ **now.** Help me push it.')
+  expect(markChanges(diffWords('one more fix, Ask it to ignore teh case', 'one more fix, ask it to ignore the case.'))).toBe('one more fix, ask it to ignore ~~teh~~ **the** case.')
+  expect(markChanges(diffWords('see github', 'See GitHub.'))).toBe('See ~~github~~ **GitHub.**')
+  expect(diffWords('ok...', 'ok.').some(s => s.kind !== 'same')).toBe(true)
+  expect(diffWords('it works', 'It works.').every(s => s.kind === 'same')).toBe(true)
+})
+
+test('fix English: a prompt whose only changes are minor gets no check', async ($, on) => {
+  const { world } = await session($, on, { reply: () => 'Please push the branch to the remote.', store: { prompt: { ...PROMPT_ON, fixEnglish: true } } })
+  const out = await submit($, 'please push the branch to the remote')
+  expect(out.context).toBeUndefined()
+  expect(world.opens).toEqual([])
+})
+
 test('fix English: the corrections ride as context and open the pane, coloured; a right prompt does neither', async ($, on) => {
   const { world } = await session($, on, { reply: p => p.replace('teh', 'the'), store: { prompt: { ...PROMPT_ON, fixEnglish: true } } })
   const out = await submit($, 'please fix teh header of the page')
