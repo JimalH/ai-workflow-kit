@@ -467,6 +467,14 @@ test('diff: a sentence start\'s capital and a closing full stop are corrected wi
   expect(diffWords('it works', 'It works.').every(s => s.kind === 'same')).toBe(true)
 })
 
+test('diff: a missing word is added on its own, and each misspelt word sits next to its correction', () => {
+  expect(markChanges(diffWords('help me push it github', 'help me to push it to GitHub'))).toBe('help me **to** push it **to** ~~github~~ **GitHub**')
+  expect(markChanges(diffWords('fix it with add new word', 'fix it by adding a new word'))).toBe('fix it ~~with~~ **by** ~~add~~ **adding** **a** new word')
+  expect(markChanges(diffWords('missing ward need a different way', 'a missing word needs a different way'))).toBe('**a** missing ~~ward~~ **word** ~~need~~ **needs** a different way')
+  expect(markChanges(diffWords('I went store yesterday', 'I went to the store yesterday'))).toBe('I went **to the** store yesterday')
+  expect(markChanges(diffWords('it dont work', 'it does not work'))).toBe('it ~~dont~~ **does not** work')
+})
+
 test('fix English: a prompt whose only changes are minor gets no check', async ($, on) => {
   const { world } = await session($, on, { reply: () => 'Please push the branch to the remote.', store: { prompt: { ...PROMPT_ON, fixEnglish: true } } })
   const out = await submit($, 'please push the branch to the remote')

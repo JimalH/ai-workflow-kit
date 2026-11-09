@@ -467,6 +467,63 @@ const tokens = (text: string): string[] => text.split(/(\s+)/).filter(t => t !==
 const minorForm = (t: string) => t.replace(/^\p{L}/u, c => c.toLowerCase()).replace(/(?<!\.)\.$/, '')
 const sameWord = (x: string, y: string) => x === y || (!/^\s+$/.test(x) && minorForm(x) === minorForm(y) && minorForm(x) !== '')
 
+// A word and its correction: the same letters apart from case and punctuation, one extended from
+// the other (add / adding), or a few letters apart for its length (ward / word, need / needs).
+const editDistance = (x: string, y: string): number => {
+  let row = Array.from({ length: y.length + 1 }, (_, k) => k)
+  for (let i = 1; i <= x.length; i++) {
+    const nextRow = [i]
+    for (let j = 1; j <= y.length; j++) nextRow[j] = Math.min(row[j]! + 1, nextRow[j - 1]! + 1, row[j - 1]! + (x[i - 1] === y[j - 1] ? 0 : 1))
+    row = nextRow
+  }
+  return row[y.length]!
+}
+const isCorrectionOf = (x: string, y: string): boolean => {
+  const a = x.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '')
+  const b = y.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '')
+  if (!a || !b) return false
+  if (a === b) return true
+  if (Math.min(a.length, b.length) >= 3 && (a.startsWith(b) || b.startsWith(a))) return true
+  return editDistance(a, b) <= Math.max(1, Math.floor(Math.max(a.length, b.length) * 0.4))
+}
+
+// The words of one changed stretch, grouped in order: a removed word with its correction, and
+// what is left between them (a missing word, a word replaced by an unrelated one) on its own.
+export const pairWords = (removed: string[], added: string[]): { del: string[]; ins: string[] }[] => {
+  const n = removed.length
+  const m = added.length
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0))
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i]![j] = isCorrectionOf(removed[i]!, added[j]!) ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!)
+    }
+  }
+  const groups: { del: string[]; ins: string[] }[] = []
+  let loose = { del: [] as string[], ins: [] as string[] }
+  const keepLoose = () => {
+    if (loose.del.length || loose.ins.length) groups.push(loose)
+    loose = { del: [], ins: [] }
+  }
+  let i = 0
+  let j = 0
+  while (i < n && j < m) {
+    if (isCorrectionOf(removed[i]!, added[j]!) && dp[i]![j] === dp[i + 1]![j + 1]! + 1) {
+      keepLoose()
+      groups.push({ del: [removed[i]!], ins: [added[j]!] })
+      i++
+      j++
+    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
+      loose.del.push(removed[i++]!)
+    } else {
+      loose.ins.push(added[j++]!)
+    }
+  }
+  while (i < n) loose.del.push(removed[i++]!)
+  while (j < m) loose.ins.push(added[j++]!)
+  keepLoose()
+  return groups
+}
+
 export const diffWords = (before: string, after: string): Segment[] => {
   const a = tokens(before)
   const b = tokens(after)
@@ -495,9 +552,14 @@ export const diffWords = (before: string, after: string): Segment[] => {
       // The whitespace a change began or ended with keeps the corrected text's spacing.
       const around = s || d
       push('same', around.match(/^\s+/)?.[0] ?? '')
-      push('del', d.trim())
-      if (d.trim() && s.trim()) push('same', ' ')
-      push('ins', s.trim())
+      // Each misspelt word next to its correction, and a missing word on its own, instead of
+      // one struck-through run and one bold run for the whole stretch.
+      pairWords(d.trim() ? d.trim().split(/\s+/) : [], s.trim() ? s.trim().split(/\s+/) : []).forEach((g, k) => {
+        if (k > 0) push('same', ' ')
+        push('del', g.del.join(' '))
+        if (g.del.length && g.ins.length) push('same', ' ')
+        push('ins', g.ins.join(' '))
+      })
       push('same', around.match(/\s+$/)?.[0] ?? '')
     }
     del = []
