@@ -28,6 +28,8 @@ A Claude Code mod: one band above the prompt with the session's clock and limits
 
 `/prompt-check`: open the Prompt check pane with the last corrections Fix English found.
 
+`/english-review`: summarise the Fix English mistake log (`~/.claude/jimal-session/english-log.md`): the mistakes that recur most, with examples and a tip for each, in Chinese.
+
 `/handoff-now`: write a handover note now and let it replace this conversation's context (old messages stay on screen); the reply says whether it worked and, if not, why. Try it first in a conversation you do not need.
 
 ## Skill
@@ -192,3 +194,9 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 ## Changes (0.9.4)
 
 - Turning In pane or Fix English off closes the Prompt check pane if it is open; before, it only stopped the next one from opening, and the open pane kept the old corrections.
+
+## Changes (0.10.0)
+
+- Fix English is an English tutor now, for learning rather than for the prompt: Sonnet reviews each English prompt and gives the corrections, a one-line reason in Chinese for each one that is more than a typo, and up to three more natural ways to say phrases that are correct but awkward. All of it opens the reply and fills the Prompt check pane; the prompt still goes as typed.
+- Capitalisation of any kind, a missing closing full stop, and informal shorthand or project terms (`kc`, `wfa`, `mt5`) are never flagged.
+- A mistake log: each reviewed prompt with something to learn is added to `~/.claude/jimal-session/english-log.md`; `/english-review` summarises it.

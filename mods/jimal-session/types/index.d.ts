@@ -41,9 +41,16 @@ export type PluginUpdate = {
 /** One run of a word diff: text kept, removed from the original, or added by the correction. */
 export type Segment = { kind: 'same' | 'del' | 'ins'; text: string }
 
+/** One learning note: the words as written, the better words, and why (one short line, in Chinese). */
+export type Note = { from: string; to: string; why: string }
+
 export type Check = {
   /** The corrected text with its changes, in order; none when it was right. */
   segments: Segment[]
+  /** Why each correction that is more than a typo was made. */
+  notes?: Note[]
+  /** Phrases that are correct but unnatural or awkward, with a more natural way to say them. */
+  natural?: Note[]
   /** The draft (or the prompt as sent) the check is of. */
   text: string
   /** `checking` while the small model works, `ready` for the draft, `submitted` once that text was sent (drawn dim). */

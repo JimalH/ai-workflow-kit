@@ -475,13 +475,13 @@ test('diff: a misspelt word is removed and its correction added; spacing and lin
 test('diff: a sentence start\'s capital and a closing full stop are corrected without a mark', () => {
   expect(markChanges(diffWords('looks good now, help me push it', 'Looks good now. Help me push it.'))).toBe('Looks good ~~now,~~ **now.** Help me push it.')
   expect(markChanges(diffWords('one more fix, Ask it to ignore teh case', 'one more fix, ask it to ignore the case.'))).toBe('one more fix, ask it to ignore ~~teh~~ **the** case.')
-  expect(markChanges(diffWords('see github', 'See GitHub.'))).toBe('See ~~github~~ **GitHub.**')
+  expect(markChanges(diffWords('see github', 'See GitHub.'))).toBe('See GitHub.')
   expect(diffWords('ok...', 'ok.').some(s => s.kind !== 'same')).toBe(true)
   expect(diffWords('it works', 'It works.').every(s => s.kind === 'same')).toBe(true)
 })
 
 test('diff: a missing word is added on its own, and each misspelt word sits next to its correction', () => {
-  expect(markChanges(diffWords('help me push it github', 'help me to push it to GitHub'))).toBe('help me **to** push it **to** ~~github~~ **GitHub**')
+  expect(markChanges(diffWords('help me push it github', 'help me to push it to GitHub'))).toBe('help me **to** push it **to** GitHub')
   expect(markChanges(diffWords('fix it with add new word', 'fix it by adding a new word'))).toBe('fix it ~~with~~ **by** ~~add~~ **adding** **a** new word')
   expect(markChanges(diffWords('missing ward need a different way', 'a missing word needs a different way'))).toBe('**a** missing ~~ward~~ **word** ~~need~~ **needs** a different way')
   expect(markChanges(diffWords('I went store yesterday', 'I went to the store yesterday'))).toBe('I went **to the** store yesterday')
@@ -502,7 +502,7 @@ test('fix English: the corrections ride as context and open the pane, coloured; 
   expect(out.context?.[0]).toContain('~~teh~~ **the**')
   expect(out.context?.[0]).toContain('**Prompt check**')
   expect(world.opens).toEqual(['jimal-session-check'])
-  expect(world.completions[0]?.system).toMatch(/copy editor/)
+  expect(world.completions[0]?.system).toMatch(/English tutor/)
   const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', component: 'Pane', requestId: 'jimal-session-check', props: {} as never })
   const pane = (await ui.findAll({ type: 'Text' })).map(t => ({ text: t.text, color: t.props.color, strikethrough: t.props.strikethrough }))
   await ui.unmount()
@@ -512,6 +512,70 @@ test('fix English: the corrections ride as context and open the pane, coloured; 
   const right = await submit($, 'please fix the header of the page')
   expect(right.context).toBeUndefined()
   expect(world.opens).toHaveLength(1)
+})
+
+const LOG = 'C:/Users/me/.claude/jimal-session/english-log.md'
+
+test('fix English, tutor: why each error was fixed and more natural phrasings ride with the corrections, fill the pane and go into the mistake log', async ($, on) => {
+  const tutor = JSON.stringify({
+    corrected: 'I used to get nearly 500 Mbps before.',
+    why: [{ from: 'get', to: 'used to get', why: '过去常发生、现在不再的事用 used to + 动词原形' }, { from: 'Github', to: 'GitHub', why: '大小写' }],
+    natural: [{ from: 'I get nearly 500 Mbps before', to: 'I used to get nearly 500 Mbps', why: 'before 和 used to 重复' }],
+  })
+  const { world } = await session($, on, { reply: tutor, store: { prompt: { ...PROMPT_ON, fixEnglish: true } } })
+  const out = await submit($, 'I get nearly 500 Mbps before')
+  expect(out.text).toBe('I get nearly 500 Mbps before')
+  const ctx = out.context?.[0] ?? ''
+  expect(ctx).toContain('I **used to** get nearly 500 Mbps before.')
+  expect(ctx).toContain('**为什么**\n- *get* → *used to get*：过去常发生、现在不再的事用 used to + 动词原形')
+  expect(ctx).not.toContain('大小写')
+  expect(ctx).toContain('**更自然的说法**\n- "I get nearly 500 Mbps before" → "I used to get nearly 500 Mbps"：before 和 used to 重复')
+  expect(world.completions[0]?.system).toMatch(/Never correct or mention: capitalisation/)
+
+  const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', component: 'Pane', requestId: 'jimal-session-check', props: {} as never })
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  await ui.unmount()
+  expect(texts).toContain('为什么')
+  expect(texts).toContain('更自然的说法')
+
+  const log = world.writes[LOG] ?? ''
+  expect(log.startsWith('# Fix English 错题本\n\n## ')).toBe(true)
+  expect(log).toContain('- 原文：I get nearly 500 Mbps before')
+  expect(log).toContain('- 改正：I **used to** get nearly 500 Mbps before.')
+  expect(log).toContain('- 为什么：*get* → *used to get*：')
+  expect(log).toContain('- 更自然：“I get nearly 500 Mbps before” → “I used to get nearly 500 Mbps”：')
+
+  // A second entry goes after the first.
+  await submit($, 'I get nearly 400 Mbps before')
+  expect((world.writes[LOG] ?? '').match(/^## /gm)).toHaveLength(2)
+})
+
+test('fix English, tutor: a correct but unnatural prompt gets only the natural phrasing; capitalisation alone gets nothing', async ($, on) => {
+  const { world } = await session($, on, {
+    reply: p =>
+      p.startsWith('can you')
+        ? JSON.stringify({ corrected: p, why: [], natural: [{ from: 'compare it, with pros and cons', to: 'compare it and list the pros and cons', why: '两个 with 连用不自然' }] })
+        : JSON.stringify({ corrected: 'Please check the KC strategy on GitHub', why: [], natural: [] }),
+    store: { prompt: { ...PROMPT_ON, fixEnglish: true } },
+  })
+  const natural = await submit($, 'can you compare it, with pros and cons')
+  expect(natural.context?.[0]).toContain('**更自然的说法**')
+  expect((natural.context?.[0] ?? '').split('Do not comment on the review.')[1]).not.toContain('~~')
+  const caps = await submit($, 'please check the kc strategy on github')
+  expect(caps.context).toBeUndefined()
+  expect((world.writes[LOG] ?? '').match(/^## /gm)).toHaveLength(1)
+})
+
+test('english review: an empty log says so; otherwise the log is summarised and its path given', async ($, on) => {
+  const { world } = await session($, on, { reply: (p, system) => (/mistake log/.test(system) ? '## 常见错误\n- 时态：used to' : p) })
+  const empty = (await $.command.run({ command: 'english-review' } as never)) as { text: string }
+  expect(empty.text).toMatch(/^The mistake log is empty so far/)
+  expect(world.completions).toHaveLength(0)
+  world.writes[LOG] = '# Fix English 错题本\n\n## 2026-11-10 23:00\n\n- 原文：I get 500 before\n'
+  const review = (await $.command.run({ command: 'english-review' } as never)) as { text: string }
+  expect(review.text).toContain('## 常见错误')
+  expect(review.text).toContain('english-log.md')
+  expect(world.completions[0]?.prompt).toContain('I get 500 before')
 })
 
 test('fix English: In reply off keeps the context out, In pane off keeps the pane shut; both off, no call; a Chinese or short prompt is not checked', async ($, on) => {
