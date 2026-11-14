@@ -200,3 +200,9 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 - Fix English is an English tutor now, for learning rather than for the prompt: Sonnet reviews each English prompt and gives the corrections, a one-line reason in Chinese for each one that is more than a typo, and up to three more natural ways to say phrases that are correct but awkward. All of it opens the reply and fills the Prompt check pane; the prompt still goes as typed.
 - Capitalisation of any kind, a missing closing full stop, and informal shorthand or project terms (`kc`, `wfa`, `mt5`) are never flagged.
 - A mistake log: each reviewed prompt with something to learn is added to `~/.claude/jimal-session/english-log.md`; `/english-review` summarises it.
+
+## Changes (0.10.1)
+
+- Fix English and Shape prompt work on what the person typed alone. A finished background task's notification, another session's message, a scheduled prompt and the like (by the engine's stamp on the prompt, or by the tag the text opens with: `<task-notification>`, `<system-reminder>`, `<cross-session-message>`) pass untouched: no model call, no Prompt check, no line in the mistake log. Before, a notification in English was reviewed as the person's own writing.
+- The instruction that rides with a check says it holds for that one prompt and is not a standing rule, so the model does not go on to write a Prompt check of its own (a translation of a Chinese prompt, say) once a compaction summary has blurred where the checks came from.
+- A mistake log written by 0.10.0 may hold notifications: delete the entries whose 原文 line contains `task-notification`.

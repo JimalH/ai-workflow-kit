@@ -495,6 +495,24 @@ test('fix English: a prompt whose only changes are minor gets no check', async (
   expect(world.opens).toEqual([])
 })
 
+test('fix English: a prompt the person did not type (a task notification, a peer message) is not checked, shaped or logged', async ($, on) => {
+  const { world } = await session($, on, { reply: p => p.replace('teh', 'the'), store: { prompt: { ...PROMPT_ON, fixEnglish: true, shapePrompt: true } } })
+  const notice = '<task-notification>\n<summary>Background command fixed teh header and exited with code 0</summary>\n</task-notification>'
+  // By the engine's stamp, and by the tag alone when nothing was stamped.
+  const stamped = await ($.prompt.submit({ text: 'the agent fixed teh header of the page', origin: { kind: 'task-notification' } } as never) as ReturnType<typeof submit>)
+  const tagged = await submit($, notice)
+  const peer = await ($.prompt.submit({ text: 'please fix teh header of the page', origin: { kind: 'peer' } } as never) as ReturnType<typeof submit>)
+  for (const out of [stamped, tagged, peer]) expect(out.context).toBeUndefined()
+  expect(tagged.text).toBe(notice)
+  expect(world.completions).toEqual([])
+  expect(world.opens).toEqual([])
+  expect(Object.keys(world.writes).filter(p => p.endsWith('english-log.md'))).toEqual([])
+  // What the person typed is still checked, and told that the check is for this prompt alone.
+  const mine = await ($.prompt.submit({ text: 'please fix teh header of the page', origin: { kind: 'composer' } } as never) as ReturnType<typeof submit>)
+  expect(mine.context?.[0]).toContain('~~teh~~ **the**')
+  expect(mine.context?.[0]).toContain('this one prompt only')
+})
+
 test('fix English: the corrections ride as context and open the pane, coloured; a right prompt does neither', async ($, on) => {
   const { world } = await session($, on, { reply: p => p.replace('teh', 'the'), store: { prompt: { ...PROMPT_ON, fixEnglish: true } } })
   const out = await submit($, 'please fix teh header of the page')
