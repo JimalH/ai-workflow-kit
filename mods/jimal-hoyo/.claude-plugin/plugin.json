@@ -1,0 +1,20 @@
+{
+  "name": "jimal-hoyo",
+  "version": "0.1.0",
+  "description": "A pane beside the chat to start, stop and watch the HoYo Daily Assistant runs. Command: /hoyo.",
+  "author": {
+    "name": "JimalH",
+    "url": "https://github.com/JimalH"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "repo": {
+      "type": "string",
+      "title": "HoYo Daily Assistant folder",
+      "description": "Folder of the HoYo Daily Assistant checkout (the one that holds hoyo.ps1). Alternative: /hoyo repo <path>"
+    }
+  },
+  "homepage": "https://github.com/JimalH/ai-workflow-kit/tree/main/mods/jimal-hoyo",
+  "repository": "https://github.com/JimalH/ai-workflow-kit",
+  "license": "MIT"
+}

@@ -37,6 +37,13 @@
       "category": "mod"
     },
     {
+      "name": "jimal-hoyo",
+      "source": "./mods/jimal-hoyo",
+      "description": "Mod: pane beside the chat (/hoyo) to start, stop and watch runs of the HoYo Daily Assistant: today's results, the run in progress with its latest log line, the last run's tasks grouped, and Pause / Stop.",
+      "version": "0.1.0",
+      "category": "mod"
+    },
+    {
       "name": "filetree",
       "source": {
         "source": "github",

@@ -79,6 +79,7 @@ When a mod here is based on another author's mod:
 | [jimal-session](jimal-session/) | One line above the prompt: cache countdown, session/week time and usage left, the switches on; a Details fold with Keep warm, Auto-handoff (`handoff` skill), Fix English (proofread English prompts, marked in the reply and a pane) and Shape prompt (a small model arranges the prompt into sections, sent beside it) and Auto-update (this mod or every installed plugin, once a day); a `usage` tool so the model can read the limits, cache and cost in the CLI | Own; cache countdown idea from [session-band](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/session-band) (MIT) |
 | [jimal-mods](jimal-mods/) | `/mods` panel: turn plugins and mods on and off, browse marketplaces and install | Own |
 | [jimal-filetree](jimal-filetree/) | File tree (`/filetree`) marking the files Claude plans to change, is changing and has changed, with a legend; lines changed outside git | Fork of [filetree](https://github.com/data-goblin/claude-code-filetree) @ `6bc23f6` (MIT) |
+| [jimal-hoyo](jimal-hoyo/) | `/hoyo` pane to start, stop and watch runs of the HoYo Daily Assistant: today's results, the run in progress, the last run's tasks grouped (Windows, `pwsh`, a local checkout of the assistant) | Own |
 
 ## External plugins
 
