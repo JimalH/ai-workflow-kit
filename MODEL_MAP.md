@@ -12,7 +12,7 @@ needed; it does not change the rules version. A project's own mapping in
 
 | Work | Tool | Model | Effort | When the first choice is short of quota |
 |---|---|---|---|---|
-| Coordination: talking to the user, briefs, checking results | Claude Code (main session) | Claude Opus 5.5 | default | Claude Sonnet 5.5 |
+| Coordination: talking to the user, briefs, checking results | Claude Code (main session) | the session's default model (Claude Fable 5.2 today) | default | Claude Opus 5.5, when Fable's limit keeps cutting work short; the user decides the switch |
 | Hard design; code where a mistake is costly | Claude Code (subagent) | Claude Fable 5.2 | high | Claude Opus 5.5 at high; tell the user |
 | Research, reading code, routine implementation | Claude Code (subagent) | Claude Sonnet 5.5 | medium | Codex CLI, gpt-6.1-terra, medium |
 | Mechanical work: scaffolding, config, running tests and reporting | Claude Code (subagent) | Claude Haiku 5.5 | low | dsh, deepseek-flash, low |
@@ -36,7 +36,7 @@ Verify always (the report is never accepted without the Coordinator's own checks
 
 | Plan | Kind | What runs out first | Ceiling for delegated work |
 |---|---|---|---|
-| Claude | subscription | Claude Fable has its own limit and is cut off while the weekly window still has most of its room | Fable: only the "hard design" row. Window: at about 70 % move routine and mechanical work to Codex and DeepSeek; stop at about 90 % |
+| Claude | subscription | Claude Fable has its own limit and is cut off while the weekly window still has most of its room | Fable: coordination (the user's choice, 2026-11-18) and the "hard design" row, nothing routine. Window: at about 70 % move routine and mechanical work to Codex and DeepSeek; stop at about 90 % |
 | Codex | subscription, shared with the user's own assistant use | the weekly window | about 80 %; usage cannot be read from the CLI, so ask the user before a batch the size of a milestone |
 | DeepSeek | pay per token, prepaid | the balance | none set; a small task costs a few cents |
 

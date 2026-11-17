@@ -167,7 +167,7 @@ verifies, and does not pick the strongest model for everything.
 | Hard design; code where a mistake is costly (state machines, stop/kill logic, security guards, parsers that decide success or failure) | Strongest available |
 | Research, reading upstream code, routine implementation, docs that need judgement | Mid tier |
 | Mechanical work: scaffolding, config, changelog and memory updates, running tests and reporting | Smallest |
-| Coordination: talking to the user, briefs, checking results | A strong model whose quota lasts; not the scarcest one |
+| Coordination: talking to the user, briefs, checking results | The main session's default model; the next strong model down when its quota becomes the limit |
 | Review | A strong model from a different vendor than the Implementer |
 | Token-heavy bulk work; long unattended runs | The cheapest model that passes |
 
@@ -178,8 +178,8 @@ verifies, and does not pick the strongest model for everything.
 - Choose by fit only. No vendor is excluded from a project for being that vendor.
 - What is scarce decides, not the list price. A subscription costs nothing more inside its
   quota, so subscriptions are used first; a pay-per-token model takes the overflow and the
-  token-heavy bulk work. The model whose quota runs out first is kept for the work only it
-  does well; it does not coordinate.
+  token-heavy bulk work. The model whose quota runs out first is kept for the work the
+  map gives it; routine and mechanical work never goes to it.
 - Reasoning effort: start at the lowest level that passes acceptance (the map gives the
   default per tier). Raise it one level for work where a mistake is costly, or after a
   failure. Higher effort always costs more time and tokens and is not reliably better.
@@ -379,7 +379,7 @@ A mod changes Claude Code's own interface or behaviour (pane, band above the pro
   milestone starts.
 - A model can have a limit of its own inside the plan's window and run out while the window
   still has room. Count the scarcest model's quota by itself: it is spent on the work the
-  map keeps for it, never on coordination or routine work.
+  map keeps for it, never on routine or mechanical work.
 - When the scarcest model is cut off, its work goes to the next model down at one effort
   level higher, and the user is told.
 - At about 70 % of a subscription's window, move routine implementation and mechanical work
