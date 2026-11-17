@@ -1,3 +1,5 @@
 .git-store/
 .vscode/
 .claude-plugin/types/
+tools/model_bench/work/
+__pycache__/
