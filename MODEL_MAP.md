@@ -15,10 +15,21 @@ needed; it does not change the rules version. A project's own mapping in
 | Coordination: talking to the user, briefs, checking results | Claude Code (main session) | the session's default model (Claude Fable 5.2 today) | default | Claude Opus 5.5, when Fable's limit keeps cutting work short; the user decides the switch |
 | Hard design; code where a mistake is costly | Claude Code (subagent) | Claude Fable 5.2 | high | Claude Opus 5.5 at high; tell the user |
 | Research, reading code, routine implementation | Claude Code (subagent) | Claude Sonnet 5.5 | medium | Codex CLI, gpt-6.1-terra, medium |
+| Routine implementation with a pinned spec (interfaces, allowed files and acceptance commands written in the brief) | dsh, alongside the row above | deepseek-flash | low | Claude Sonnet 5.5, medium |
 | Mechanical work: scaffolding, config, running tests and reporting | Claude Code (subagent) | Claude Haiku 5.5 | low | dsh, deepseek-flash, low |
 | Token-heavy bulk work; long unattended runs | dsh | deepseek-flash | low | Claude Haiku 5.5 |
 | Review of work written by a Claude model | Codex CLI | gpt-6.1-sol | medium | Claude Opus 5.5 (then not an independent review; say so) |
 | Review of work written by Codex or DeepSeek | Claude Code (subagent) | Claude Opus 5.5 | medium | Claude Sonnet 5.5 |
+
+DeepSeek as implementer (the user's decision, 2026-11-18, after the two-task trial under
+Evidence): `deepseek-flash` takes implementation work next to Claude Sonnet, on these terms.
+
+- The brief pins everything: interfaces, the files it may touch, the acceptance commands.
+  Where a brief was ambiguous or contradicted itself, it followed the letter or its own
+  reading, did not check the stated goal, and did not report the conflict (both trial tasks).
+- Its work is reviewed by a model from another vendor (the "Review of work written by Codex
+  or DeepSeek" row), and its report is checked ("Verify always" below).
+- A brief with open decisions, or work that needs judgement about intent, goes to Sonnet.
 
 Not used:
 
@@ -85,6 +96,8 @@ Found and tested on PC1, 2026-11-18, dsh 0.2.2-rc.1; not re-tested on the other 
   read its `SUMMARY` and `VERDICT` lines. It changes Windows file permissions, so it needs
   the user's approval. As PC1 relayed the user's instruction for the backtest machines:
   allowed under `C:\MetaTrader 5`, never for system files or folders, anything else ask first.
+- Git Bash does not start inside the sandbox. Give acceptance commands as direct interpreter
+  calls (`python -m pytest ...`), not as `bash script.sh`.
 - `dsh headless` has no approval channel: the model inside dsh cannot get an escalation
   approved. The session that starts dsh does the test and, where approved, the repair.
 - `--permission-mode danger-full-access` is not the default: credentials and running
@@ -136,6 +149,28 @@ The kit's own test (`tools/model_bench/`, results in `tools/model_bench/results/
   model's work 9 and 10 where the other reviewer gave 7. Hence "review crosses vendors".
 - Limits of this evidence: one task, one run each; the same model's score moved by one to
   two points between rounds.
+
+Trial on real work (2026-11-18, the MQL5 project; run and reported by the PC1 session, not
+part of `tools/model_bench/`):
+
+- Two tasks from the project's to-do list (a port of chart functions from a prototype; a
+  backend split of a catalogue with a new CLI option), each given as one written brief to
+  `deepseek-flash` at `low` and to Claude Sonnet 5.5 at `medium` in separate copies. Two
+  reviewers scored both blind (Codex `gpt-6.1-sol` and Claude Fable 5.2), out of 100.
+
+  | Task | deepseek-flash (Codex / Fable) | Sonnet 5.5 (Codex / Fable) |
+  |---|---|---|
+  | Chart-function port | 79.5 / 73.5 | 85.0 / 81.5 |
+  | Catalogue split | 80.5 / 75.8 | 88.25 / 83.0 |
+
+- Both passed the acceptance commands and the coordinator's own spot check on both tasks.
+  DeepSeek: 3.3 M and 3.9 M tokens (almost all cache reads), about $0.10 and $0.09 at peak
+  rates, 5 and 8 minutes. Sonnet: about 0.1 M tokens as reported by the tool, 4 and 5 minutes.
+- In both merges the Sonnet version was the base and parts of the DeepSeek version were
+  taken (input guards, cleaner row construction, several tests).
+- Limits: two tasks, one run each. In the first task DeepSeek could not run any command
+  (the Windows sandbox point above) and wrote blind; in the second it could not use the
+  bash wrappers. The Sonnet token figure has no input / output breakdown.
 
 ## Refreshing this file
 
