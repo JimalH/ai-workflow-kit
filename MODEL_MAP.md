@@ -64,18 +64,32 @@ Verify always (the report is never accepted without the Coordinator's own checks
 
 ### dsh on Windows: where `<DIR>` may be
 
-Found on PC1, 2026-11-18, dsh 0.2.2-rc.1; not re-tested on the other machines.
+Found and tested on PC1, 2026-11-18, dsh 0.2.2-rc.1; not re-tested on the other machines.
 
-- The signed-in user needs Full Control on `<DIR>`. Before each shell command the dsh sandbox
-  adds its own permission entry to the folder, and without Full Control every shell call
-  returns `SetNamedSecurityInfoW failed (Win32 5): grantWrite(<DIR>)`. File tools still
-  work, so the model writes code but never runs it, and the run still exits 0: check that
-  the tests ran, not just the exit code.
-- Folders created at a drive root (`C:\tmp\...`) give the user only Modify; folders under
-  the user profile give Full Control. Put dsh work folders under the user profile.
-- dsh's bundled repair (`diagnose-windows-sandbox-acl`) fixes a folder by adding a Full
-  Control entry for the user. It changes Windows file permissions: only with the user's
-  approval.
+- In some folders every shell call inside dsh fails with
+  `SetNamedSecurityInfoW failed (Win32 5): grantWrite(<DIR>)`: before each shell command the
+  sandbox adds its own permission entry to the folder, and the folder refuses it. File tools
+  still work, so the model writes code but never runs it, and the run still exits 0: check
+  that the tests ran, not just the exit code.
+- Which folders are affected cannot be told from the permission list (on PC1 `C:\tmp\...`
+  failed, `C:\MetaTrader 5\MQL5` and folders under the user profile worked). Test the folder
+  before real work: start in it and run
+  `dsh headless --json --approval-policy never "Run the shell command Get-Location once and reply with exactly what it printed. Do nothing else."`,
+  then look for a `tool_result` with `"status":"completed"`.
+- An affected folder: work in another folder. That needs no permission change and is the
+  first choice.
+- Only when the work must happen in the affected folder: dsh's bundled repair script
+  (`...\@deepseek-ai\dsh-sandbox-windows-acl\assets\diagnose-windows-sandbox-acl\scripts\diagnose-windows-sandbox-acl.ps1 -Path <DIR> -AllowRoot <DIR or allowed parent> -Out <backup folder under the user profile>`),
+  run once in a normal, never elevated, PowerShell outside dsh. It adds a Full Control entry
+  for the signed-in user on that one folder, backs up first and prints the restore command;
+  read its `SUMMARY` and `VERDICT` lines. It changes Windows file permissions, so it needs
+  the user's approval. As PC1 relayed the user's instruction for the backtest machines:
+  allowed under `C:\MetaTrader 5`, never for system files or folders, anything else ask first.
+- `dsh headless` has no approval channel: the model inside dsh cannot get an escalation
+  approved. The session that starts dsh does the test and, where approved, the repair.
+- `--permission-mode danger-full-access` is not the default: credentials and running
+  processes (backtests, MT5) are within its reach. Only for a named task, after telling the
+  user.
 - dsh leaves two permission entries on any folder it works in (a deny on
   delete-subfolders-and-files for Everyone, and a grant for its sandbox identity). Do not
   point it at a synced project folder without the user knowing that.
