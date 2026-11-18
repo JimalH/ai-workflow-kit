@@ -57,6 +57,28 @@ Verify always (the report is never accepted without the Coordinator's own checks
   root (dsh also reads `CLAUDE.md`; Codex does not by default).
 - Write limits: Codex and dsh write only inside `<DIR>` in `workspace-write` (add folders
   with `--add-dir`). Neither limits reading, and dsh does not limit the network.
+- dsh argument order: the profile name comes first (`dsh headless --patch ...`);
+  `dsh --patch <file> headless ...` fails with "--profile <name> is required".
+- dsh token use: sum the `usage` of every `{"type":"status","phase":"step_end"}` event in
+  the `--json` output.
+
+### dsh on Windows: where `<DIR>` may be
+
+Found on PC1, 2026-11-18, dsh 0.2.2-rc.1; not re-tested on the other machines.
+
+- The signed-in user needs Full Control on `<DIR>`. Before each shell command the dsh sandbox
+  adds its own permission entry to the folder, and without Full Control every shell call
+  returns `SetNamedSecurityInfoW failed (Win32 5): grantWrite(<DIR>)`. File tools still
+  work, so the model writes code but never runs it, and the run still exits 0: check that
+  the tests ran, not just the exit code.
+- Folders created at a drive root (`C:\tmp\...`) give the user only Modify; folders under
+  the user profile give Full Control. Put dsh work folders under the user profile.
+- dsh's bundled repair (`diagnose-windows-sandbox-acl`) fixes a folder by adding a Full
+  Control entry for the user. It changes Windows file permissions: only with the user's
+  approval.
+- dsh leaves two permission entries on any folder it works in (a deny on
+  delete-subfolders-and-files for Everyone, and a grant for its sandbox identity). Do not
+  point it at a synced project folder without the user knowing that.
 
 ## Prices (USD per 1M tokens)
 
