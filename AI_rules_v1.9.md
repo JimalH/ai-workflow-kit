@@ -267,6 +267,24 @@ When the user requests a rules update:
 4. **Apply**: only after user approval, download the new file and replace the local copy. Record the update in `<PROJECT_ROOT>/.memory/CHANGELOG.md`.
 5. **No silent upgrades**: never auto-replace or auto-merge rules without user confirmation.
 
+### Where an update goes
+
+- **Default locations, every time.** A rules update brings the default location of every AI
+  tool on the machine up to date in the same step: Claude Code `~/.claude/CLAUDE.md`, Codex
+  `~/.codex/AGENTS.md`, dsh `~/.dsh/AGENTS.md`, and the local kit copy when the machine has
+  one. These hold a pointer to the rules, so the check is that each exists and points to the
+  latest source; a tool that is not installed is skipped and named.
+- **Project copies, never by themselves.** A project's own copy of the rules (for example
+  `<PROJECT_ROOT>/.claude/CLAUDE.md`, `AGENTS.md` or `AI_RULES.md` holding the rules text) is
+  not updated along with the default locations. It changes only when the user asks for it in
+  that project, and until then it stays the copy in force for that project.
+- **One notice per new version.** At the start of work in a project whose own copy is older
+  than the latest published version, tell the user once: the project's version, the latest
+  version, and in one or two lines what changed. Do not ask again and do not update. Record
+  it in `PROJECT_MEMORY.md` (`Rules update notice: v<latest> announced <date>`). While the
+  latest version stays the same there is no second notice; a newer version gets one new
+  notice.
+
 ## 8) Mods (Claude Code)
 
 > Source of truth: `https://github.com/JimalH/ai-workflow-kit` → `mods/` (full guide: `mods/README.md`)
