@@ -259,31 +259,46 @@ After completing any code/config/doc change, the Implementer (or Reviewer) must:
 
 > Source of truth: `https://github.com/JimalH/ai-workflow-kit`
 
-When the user requests a rules update:
+The rules file in the kit is a template. A project may hold its own copy of it, with rules
+the project added or adjusted. Updates are automatic and are merges: the template's changes
+are carried over, what a project made its own is kept.
 
-1. **Fetch**: check the remote repo (`JimalH/ai-workflow-kit`) for any `AI_rules_v*.md` files with a version higher than the one currently in use.
-2. **Compare**: if a newer version exists, produce a concise summary of what changed (added / modified / removed rules, section-by-section).
-3. **Confirm**: present the diff summary to the user and ask for explicit approval before applying.
-4. **Apply**: only after user approval, download the new file and replace the local copy. Record the update in `<PROJECT_ROOT>/.memory/CHANGELOG.md`.
-5. **No silent upgrades**: never auto-replace or auto-merge rules without user confirmation.
+### When
 
-### Where an update goes
+- At the start of work, compare the version in use with the newest `AI_rules_v*.md` in the
+  kit (local copy, else `JimalH/ai-workflow-kit`). When a newer one exists, update without
+  asking. The user asking for an update triggers the same steps.
 
-- **Default locations, every time.** A rules update brings the default location of every AI
-  tool on the machine up to date in the same step: Claude Code `~/.claude/CLAUDE.md`, Codex
-  `~/.codex/AGENTS.md`, dsh `~/.dsh/AGENTS.md`, and the local kit copy when the machine has
-  one. These hold a pointer to the rules, so the check is that each exists and points to the
-  latest source; a tool that is not installed is skipped and named.
-- **Project copies, never by themselves.** A project's own copy of the rules (for example
-  `<PROJECT_ROOT>/.claude/CLAUDE.md`, `AGENTS.md` or `AI_RULES.md` holding the rules text) is
-  not updated along with the default locations. It changes only when the user asks for it in
-  that project, and until then it stays the copy in force for that project.
-- **One notice per new version.** At the start of work in a project whose own copy is older
-  than the latest published version, tell the user once: the project's version, the latest
-  version, and in one or two lines what changed. Do not ask again and do not update. Record
-  it in `PROJECT_MEMORY.md` (`Rules update notice: v<latest> announced <date>`). While the
-  latest version stays the same there is no second notice; a newer version gets one new
-  notice.
+### Default locations
+
+- Bring the default location of every AI tool on the machine up to date in the same step:
+  Claude Code `~/.claude/CLAUDE.md`, Codex `~/.codex/AGENTS.md`, dsh `~/.dsh/AGENTS.md`, and
+  the local kit copy when the machine has one (pull). These hold a pointer to the rules, so
+  the check is that each exists and points to the latest source; a tool that is not
+  installed is skipped and named.
+
+### A project's own copy: merge, never replace
+
+A project's own copy is a file in the project that holds the rules text (for example
+`<PROJECT_ROOT>/.claude/CLAUDE.md`, `AGENTS.md` or `AI_RULES.md`).
+
+1. **Base**: the template version the copy was last brought to (its `Version:` line); that
+   file is in the kit, in `Archived/` once it is no longer the newest.
+2. **Template changes**: the difference between the base and the newest template.
+3. **Apply only those** to the project's copy. Everything the project added or adjusted
+   stays as it is, in its place.
+4. **Same passage changed on both sides**: keep the project's wording and name the passage in
+   the report, with the template's new wording beside it.
+5. Set the copy's `Version:` line to the new template version and record the update in the
+   project's change record (Section 3).
+6. **Report, do not ask**: one or two lines to the user: from which version to which, what
+   changed, and any passages from step 4.
+
+- Never overwrite a project's copy with the template.
+- When the base version cannot be found, or the copy carries no `Version:` line, do not
+  guess: leave the copy alone and tell the user.
+- A file shared between machines (a synced folder) is updated from one machine; the others
+  pick it up.
 
 ## 8) Mods (Claude Code)
 
