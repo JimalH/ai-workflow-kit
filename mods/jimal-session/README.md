@@ -206,3 +206,8 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 - Fix English and Shape prompt work on what the person typed alone. A finished background task's notification, another session's message, a scheduled prompt and the like (by the engine's stamp on the prompt, or by the tag the text opens with: `<task-notification>`, `<system-reminder>`, `<cross-session-message>`) pass untouched: no model call, no Prompt check, no line in the mistake log. Before, a notification in English was reviewed as the person's own writing.
 - The instruction that rides with a check says it holds for that one prompt and is not a standing rule, so the model does not go on to write a Prompt check of its own (a translation of a Chinese prompt, say) once a compaction summary has blurred where the checks came from.
 - A mistake log written by 0.10.0 may hold notifications: delete the entries whose 原文 line contains `task-notification`.
+
+## Changes (0.10.2)
+
+- Fix English, the draft's live check: a task notification in the prompt box is no longer reviewed. Interrupting a turn puts a queued notification back into the box, and the line under the row then showed it "corrected" as if the person had written it. The live check now skips such text, as the check on Enter has since 0.10.1.
+- The test for host text is wider, for the draft and on Enter alike: any line that opens with one of the host's tags (`<task-notification>`, `<system-reminder>`, `<cross-session-message>`, ...) marks the text, not only the first. A notification that follows a preamble, or sits under words of the person's own, passes untouched. A prompt that pastes such a block is therefore not checked either.

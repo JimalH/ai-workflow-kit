@@ -714,6 +714,28 @@ test('fix English, live: the draft is checked 900 ms after the last change and t
   expect(await checkLine($)).toBeUndefined()
 })
 
+test('fix English, live: a task notification put back into the box is not checked, alone or after a preamble; the person\'s next draft is', async ($, on) => {
+  const { clock, world } = await session($, on, { reply: p => p.replace('teh', 'the'), store: { prompt: { ...PROMPT_ON, fixEnglish: true } } })
+  const notice = '<task-notification>\n<summary>Agent fixed teh header and is waiting on its own background work</summary>\n</task-notification>'
+  await typed($, notice)
+  await clock.advance(1500)
+  expect(world.completions).toHaveLength(0)
+  expect(await checkLine($)).toBeUndefined()
+  await typed($, `[SYSTEM NOTIFICATION - NOT USER INPUT]\nThis is an automated background-task event about teh header.\n${notice}`)
+  await clock.advance(1500)
+  expect(world.completions).toHaveLength(0)
+  expect(await checkLine($)).toBeUndefined()
+  // Sent from the box as it stands, it goes untouched too.
+  const sent = await submit($, `a queued note about teh header of the page\n${notice}`)
+  expect(sent.context).toBeUndefined()
+  expect(world.completions).toHaveLength(0)
+  // What the person types next is checked as before.
+  await typed($, 'please fix teh header of the page')
+  await clock.advance(1000)
+  expect(world.completions).toHaveLength(1)
+  expect((await checkLine($))?.find(t => t.text === 'teh')).toMatchObject({ strikethrough: true })
+})
+
 test('shape prompt: a prompt ending in ++ is shaped with the switch off, and the mark is dropped', async ($, on) => {
   const { world } = await session($, on, { reply: '1. make the page faster\n2. it is slow', store: { prompt: { ...PROMPT_ON } } })
   const plain = await submit($, 'make the page faster, it is slow')
