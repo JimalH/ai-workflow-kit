@@ -14,6 +14,8 @@ export type Handoff = {
   forExpiresAt?: number
   /** The note already replaced the old context (compaction), or was tried. */
   isApplied?: boolean
+  /** Written by Auto-compact: the band shows it only while it is being written and applied. */
+  by?: 'auto-compact'
 }
 
 export type PromptSwitches = {
@@ -83,6 +85,12 @@ declare module 'claude-code' {
       pluginUpdate: PluginUpdate
       /** A plugin update is running now. */
       isUpdating: boolean
+      /** Auto-compact: at a stage's end, and before a prompt that starts unrelated work, the context is replaced by a handover note. */
+      autoCompact: boolean
+      /** When a handover note last replaced this session's context, in ms since the epoch; null before any. */
+      lastCompactAt: number | null
+      /** Main-thread turns completed since that compaction. */
+      turnsSinceCompact: number
     }
   }
 }

@@ -17,15 +17,17 @@ type World = {
   completions: { system: string; prompt: string }[]
   opens: string[]
   closes: string[]
+  submits: { text: string; origin?: unknown }[]
+  fills: string[]
 }
 
 // A session in E:\AI workflow on Windows, with the fork, files and commands recorded.
 async function session(
   $: Engine,
   on: On,
-  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; weekOnly?: boolean; context?: Record<string, unknown>; cost?: { usd: number }; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; run?: (argv: string[]) => Partial<{ exitCode: number; stdout: string; stderr: string }> | undefined; reply?: string | ((prompt: string, system: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean } = {},
+  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; weekOnly?: boolean; context?: Record<string, unknown>; cost?: { usd: number }; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; run?: (argv: string[]) => Partial<{ exitCode: number; stdout: string; stderr: string }> | undefined; reply?: string | ((prompt: string, system: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean; compactOk?: boolean; messages?: { role: string; text: string }[]; refusePluginPrompt?: boolean; refuseFill?: boolean; turnDuringFork?: boolean } = {},
 ) {
-  const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store }, completions: [], opens: [], closes: [] }
+  const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store }, completions: [], opens: [], closes: [], submits: [], fills: [] }
   const clock = mock.clock(on, { now: START })
   mock.env(on, { USERPROFILE: 'C:\\Users\\me' })
   on('session.start', async () => ({ cwd: 'E:\\AI workflow' }) as never)
@@ -54,8 +56,10 @@ async function session(
     world.closes.push((e as { id: string }).id)
     return { value: undefined } as never
   })
-  on('model.fork', (_$, e) => {
+  on('model.fork', async (h$, e) => {
     world.forks.push((e as { prompt: string }).prompt)
+    // The person sends another prompt while the note is being written.
+    if (opts.turnDuringFork) await (h$.turn as unknown as { start: (e: unknown) => Promise<unknown> }).start({})
     if (opts.forkReason) return { value: { isAnswered: false, reason: opts.forkReason } } as never
     return { value: { isAnswered: true, text: opts.fork ?? 'ok', usage: { input_tokens: 10, output_tokens: 2, cache_read_input_tokens: opts.coldFork ? 0 : 50000, cache_creation_input_tokens: 0 } } } as never
   })
@@ -94,13 +98,22 @@ async function session(
   })
   on('session.compact', (_$, e) => {
     world.compacts.push(String((e as { instructions?: string }).instructions))
+    // `compactOk`: the host compacts as asked (the kit has no transcript of its own to do it).
+    if (opts.compactOk) return { messages: [{ role: 'user', text: 'compacted', toolUses: [] }] } as never
     return { skip: 'test: no model compaction here' } as never
   })
+  on('session.messages', () => ({ value: (opts.messages ?? []).map(m => ({ ...m, toolUses: [] })) }) as never)
   on('turn.complete', async () => ({ text: '' }) as never)
   on('session.measure', () => ({ changed: ['context'] }) as never)
   on('prompt.submit', (_$, e) => {
-    const { text, context } = e as { text: string; context?: readonly string[] }
+    const { text, context, origin } = e as { text: string; context?: readonly string[]; origin?: unknown }
+    world.submits.push({ text, origin })
+    if (opts.refusePluginPrompt && (origin as { kind?: string } | undefined)?.kind === 'plugin') return { drop: 'test: busy' } as never
     return (context ? { text, context } : { text }) as never
+  })
+  on('prompt.fill', (_$, e) => {
+    world.fills.push((e as { text: string }).text)
+    return { isFilled: !opts.refuseFill, text: '', cursor: 0 } as never
   })
   on('prompt.change', (_$, e) => ({ text: (e as { text: string }).text }) as never)
   on('ui.toast', (_$, e) => {
@@ -782,9 +795,162 @@ test('details: no button carries a hotkey (the band must be focused first, so a 
     await ui2.unmount()
     return b?.props.hotkey
   }
-  for (const key of ['handoff-all', 'details', 'keep-warm', 'auto-handoff', 'fix-english', 'in-reply', 'in-pane', 'shape-prompt']) {
+  for (const key of ['handoff-all', 'details', 'keep-warm', 'auto-handoff', 'auto-compact', 'fix-english', 'in-reply', 'in-pane', 'shape-prompt']) {
     expect(await byKey(key)).toBeUndefined()
   }
+})
+
+// ---------------------------------------------------------------------------
+// Auto-compact
+
+const BIG = { tokens: 300000, window: 1000000, percent: 30 }
+const stageDone = async ($: Engine) =>
+  String(((await $.tool.call({ tool: 'mcp__jimal-session__stage_done' } as never)) as { result: string }).result)
+const WORK = [
+  { role: 'user', text: 'fix the cron parser so */10000 is accepted' },
+  { role: 'assistant', text: 'Fixed and committed; all 55 tests pass.' },
+]
+// The small model's verdict on relatedness; every other completion echoes the prompt.
+const judge = (verdict: 'NEW' | 'RELATED') => (prompt: string, system: string) => (system.includes('starts unrelated work') ? verdict : prompt)
+
+test('auto-compact: off by default; stage_done then changes nothing, and says so', async ($, on) => {
+  const { clock, world } = await session($, on, { compactOk: true, context: BIG })
+  await press($, 'details')
+  expect(await stateOf($, 'auto-compact')).toBe('off')
+  expect(await texts($)).toContain('not compacted yet')
+  expect(await stageDone($)).toContain('Auto-compact is off')
+  await answer($)
+  await clock.advance(5000)
+  expect(world.forks).toHaveLength(0)
+  expect(world.compacts).toHaveLength(0)
+})
+
+test('auto-compact: stage_done, then the reply ends: a note replaces the context; the band counts it while it runs and shows nothing after', async ($, on) => {
+  const { clock, world } = await session($, on, { fork: '## Goal\nShip the band.', compactOk: true, context: BIG, delayMs: 0 })
+  await press($, 'auto-compact')
+  expect(world.store.autoCompact).toBe(true)
+  expect((await middleOf($))?.list).toContain('● Auto-compact')
+  expect(await stageDone($)).toContain('once this reply ends')
+  // Nothing under the turn: the note is written once the reply is over.
+  expect(world.forks).toHaveLength(0)
+  await answer($)
+  await clock.advance(2000)
+  expect(world.forks).toHaveLength(1)
+  expect(world.compacts.some(c => c.startsWith('jimal-session: handover note'))).toBe(true)
+  // Done: the middle is back to the switches, and the Details row has the time.
+  expect((await middleOf($))?.working).toBe('')
+  // The time in the machine's own zone.
+  const at = new Date(START)
+  expect(await texts($)).toContain(`last compacted ${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`)
+  // A second stage_done right after: nothing new since, and within 30 minutes, so no second note.
+  await stageDone($)
+  await answer($)
+  await clock.advance(2000)
+  expect(world.forks).toHaveLength(1)
+})
+
+test('auto-compact: under 20% of the context window nothing is compacted', async ($, on) => {
+  const { clock, world } = await session($, on, { compactOk: true, context: { tokens: 120000, window: 1000000, percent: 12 } })
+  await press($, 'auto-compact')
+  await stageDone($)
+  await answer($)
+  await clock.advance(2000)
+  expect(world.forks).toHaveLength(0)
+})
+
+test('auto-compact: a prompt starting unrelated work is held, the context compacted, and the prompt sent again as typed', async ($, on) => {
+  const { clock, world } = await session($, on, { fork: '## Goal\nCron parser.', compactOk: true, context: BIG, messages: WORK, reply: judge('NEW') })
+  await press($, 'auto-compact')
+  await answer($)
+  const text = 'why does right-clicking the Codex icon on my desktop freeze the computer?'
+  const out = (await $.prompt.submit({ text, origin: { kind: 'composer' } } as never)) as { drop?: string }
+  expect(out.drop).toContain('new task')
+  expect(world.completions.some(c => c.prompt.includes('fix the cron parser') && c.prompt.includes(text))).toBe(true)
+  await clock.advance(2000)
+  expect(world.compacts.some(c => c.startsWith('jimal-session: handover note'))).toBe(true)
+  const again = world.submits.find(s => s.text === text && (s.origin as { kind?: string } | undefined)?.kind === 'plugin')
+  expect(again).toBeDefined()
+  expect((again?.origin as { asUser?: boolean }).asUser).toBe(true)
+})
+
+test('auto-compact: a related prompt, a short one, a command or one typed over a running turn goes on untouched', async ($, on) => {
+  const { world } = await session($, on, { compactOk: true, context: BIG, messages: WORK, reply: judge('RELATED') })
+  await press($, 'auto-compact')
+  await answer($)
+  const related = (await $.prompt.submit({ text: 'now also accept leading zeros in the step', origin: { kind: 'composer' } } as never)) as { drop?: string; text?: string }
+  expect(related.drop).toBeUndefined()
+  expect(related.text).toBe('now also accept leading zeros in the step')
+  const judged = world.completions.length
+  // Too short to judge, or mid-turn: no call at all.
+  await $.prompt.submit({ text: 'push it', origin: { kind: 'composer' } } as never)
+  await $.prompt.submit({ text: 'and what about the desktop icon problem then', origin: { kind: 'composer' }, turnId: 't1' } as never)
+  expect(world.completions).toHaveLength(judged)
+  expect(world.forks).toHaveLength(0)
+})
+
+test('auto-compact: when the prompt cannot be sent again, it goes back into the prompt box', async ($, on) => {
+  // The host refuses the plugin's own prompt.
+  const { clock, world } = await session($, on, { compactOk: true, context: BIG, messages: WORK, reply: judge('NEW'), refusePluginPrompt: true })
+  await press($, 'auto-compact')
+  await answer($)
+  const text = 'why does right-clicking the Codex icon freeze the computer?'
+  await $.prompt.submit({ text, origin: { kind: 'composer' } } as never)
+  await clock.advance(2000)
+  expect(world.fills).toContain(text)
+  expect(world.toasts.some(t => t.includes('back in the prompt box'))).toBe(true)
+})
+
+test('auto-compact: a prompt that can be neither sent again nor put back is given in full in a toast', async ($, on) => {
+  const { clock, world } = await session($, on, { compactOk: true, context: BIG, messages: WORK, reply: judge('NEW'), refusePluginPrompt: true, refuseFill: true })
+  await press($, 'auto-compact')
+  await answer($)
+  const text = 'why does right-clicking the Codex icon freeze the computer? ++'
+  await $.prompt.submit({ text, origin: { kind: 'composer' } } as never)
+  await clock.advance(2000)
+  // The `++` mark is not passed on: a plugin's prompt is not shaped.
+  expect(world.toasts.some(t => t.includes('It was: why does right-clicking the Codex icon freeze the computer?') && !t.includes('++'))).toBe(true)
+})
+
+test('auto-compact: a note written while the person sent another prompt is dropped, not applied', async ($, on) => {
+  const { clock, world } = await session($, on, { fork: '## Goal\nShip the band.', compactOk: true, context: BIG, turnDuringFork: true })
+  await press($, 'auto-compact')
+  await stageDone($)
+  await answer($)
+  await clock.advance(2000)
+  expect(world.forks).toHaveLength(1)
+  expect(world.compacts).toHaveLength(0)
+  expect(Object.keys(world.writes).filter(p => p.includes('/handoffs/'))).toHaveLength(0)
+})
+
+test('auto-compact: a subagent cannot mark the stage', async ($, on) => {
+  const { clock, world } = await session($, on, { compactOk: true, context: BIG })
+  await press($, 'auto-compact')
+  const r = String(((await $.tool.call({ tool: 'mcp__jimal-session__stage_done', agentId: 'sub1' } as never)) as { result: string }).result)
+  expect(r).toContain('Only the main conversation')
+  await answer($)
+  await clock.advance(2000)
+  expect(world.forks).toHaveLength(0)
+})
+
+test('auto-handoff: under 20% of the context window the last minute passes without a note', async ($, on) => {
+  const { clock, world } = await session($, on, { fork: '## Goal\nShip the band.', context: { tokens: 120000, window: 1000000, percent: 12 } })
+  await answer($)
+  await press($, 'auto-handoff')
+  await clock.advance(59 * MIN + 2000)
+  expect(world.forks).toHaveLength(0)
+})
+
+test('auto-handoff with Auto-compact: the deadline Auto-compact wrote its note for passes without a second one', async ($, on) => {
+  const { clock, world } = await session($, on, { fork: '## Goal\nShip the band.', compactOk: true, context: BIG })
+  await press($, 'auto-compact')
+  await press($, 'auto-handoff')
+  await stageDone($)
+  await answer($)
+  await clock.advance(2000)
+  expect(world.forks).toHaveLength(1)
+  // The cache's last minute after that answer: the context is the note, nothing new since.
+  await clock.advance(59 * MIN)
+  expect(world.forks).toHaveLength(1)
 })
 
 test('usage tool: the windows, the cache, the context and the switches as text', async ($, on) => {

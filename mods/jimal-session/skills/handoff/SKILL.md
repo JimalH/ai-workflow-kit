@@ -11,7 +11,15 @@ Write it in the language the user has been using. Use these sections, leaving ou
 What the user is trying to achieve, in 1-3 sentences, including any constraints or preferences they stated.
 
 ## Current state
-What is done and verified, and what is in progress. Name the repository or folder, branch, and the files involved, with full paths.
+What is done and verified, and what is in progress. Name the repository or folder, branch, and the files involved, with full paths. Name changes that are not committed yet.
+
+## Still running
+Every piece of work started in this conversation that has not reported back yet: background commands and tasks, subagents, sessions started from here, and messages sent to other sessions that are awaiting a reply. Their reports will arrive after this note replaces the conversation, so give each one enough to recognise and handle it:
+- its id or name as the conversation gave it, and when it started;
+- what it is doing, and where its output or results will be (full paths);
+- what to do when it reports (the next command, what to check before trusting it);
+- what the user is waiting for from it.
+Leave the section out when nothing is running.
 
 ## Decisions
 Choices made and their reasons, so they are not reopened. Include rejected options briefly.

@@ -25,6 +25,11 @@ const pluginUpdate = atom({ plugin: 'jimal-session', key: 'pluginUpdate' } as co
 const isUpdating = atom({ plugin: 'jimal-session', key: 'isUpdating' } as const, false)
 // The Details boxes are unfolded under the band's row.
 const isDetailsOpen = atom({ plugin: 'jimal-session', key: 'isDetailsOpen' } as const, false)
+// Auto-compact: the switch (kept in the store), when a note last replaced the context, and the
+// turns since, so two features never compact the same context twice.
+const autoCompact = atom({ plugin: 'jimal-session', key: 'autoCompact' } as const, false)
+const lastCompactAt = atom({ plugin: 'jimal-session', key: 'lastCompactAt' } as const, null as number | null)
+const turnsSinceCompact = atom({ plugin: 'jimal-session', key: 'turnsSinceCompact' } as const, 0)
 
 // Claude Code writes the main thread's prompt cache with a 1-hour lifetime on a subscription.
 const CACHE_TTL_MS = 60 * 60 * 1000
@@ -77,6 +82,10 @@ const MIN_MIDDLE_W = 8
 const BOX_W = 30
 
 const pad = (n: number) => String(n).padStart(2, '0')
+const clockTime = (at: number) => {
+  const d = new Date(at)
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 // ---------------------------------------------------------------------------
 // Cache countdown
@@ -249,8 +258,9 @@ const warm = async ($: EngineInterface): Promise<void> => {
 }
 
 // Writes a handover note with a forked request and saves it; the reason when it fails.
-const writeNote = async ($: EngineInterface, deadline: number): Promise<{ path: string; text: string } | { reason: string }> => {
-  await update($, handoff, prev => ({ ...prev, status: 'writing', forExpiresAt: deadline }))
+// `by` marks a note Auto-compact writes, which the band shows only while it is under way.
+const writeNote = async ($: EngineInterface, deadline: number, by?: 'auto-compact'): Promise<{ path: string; text: string } | { reason: string }> => {
+  await update($, handoff, prev => ({ ...prev, status: 'writing', forExpiresAt: deadline, by }))
   const r = await $.model.fork({ prompt: await handoffPrompt($) })
   if (!r.isAnswered || !r.text.trim()) {
     await update($, handoff, prev => ({ ...prev, status: 'failed' }))
@@ -270,8 +280,49 @@ const writeNote = async ($: EngineInterface, deadline: number): Promise<{ path: 
   for (const n of await listNotes($)) {
     if (n.path !== path && n.path.endsWith(`-${sid}.md`)) await deleteFile($, n.path)
   }
-  await update($, handoff, () => ({ status: 'saved', path, forExpiresAt: deadline }))
+  await update($, handoff, () => ({ status: 'saved', path, forExpiresAt: deadline, by }))
   return { path, text: r.text.trim() }
+}
+
+// One note at a time: Auto-compact, the auto-handoff, `Handoff all` and /handoff-now wait
+// for one being written and applied, and then usually find nothing new to compact.
+let isNoteBusy = false
+// Main-thread turns started so far: a note written while one more started is older than the
+// conversation, and applying it would erase that exchange.
+let turnSeq = 0
+
+// The note no longer covers the conversation (a turn started or runs): it is dropped unused.
+const dropStaleNote = async ($: EngineInterface, path: string, from: number): Promise<boolean> => {
+  if (turnSeq === from && !(await read($, isBusy))) return false
+  await deleteFile($, path)
+  await update($, handoff, () => ({ status: 'idle' }))
+  $.ui.log('jimal-session: a handover note was dropped: the conversation moved on while it was written', { to: 'debug' })
+  return true
+}
+
+// A note replaced the context: the rules below count from here.
+const markCompacted = async ($: EngineInterface): Promise<void> => {
+  const at = await $.clock.now()
+  await update($, lastCompactAt, () => at)
+  await update($, turnsSinceCompact, () => 0)
+}
+
+// Below this much of the context window, a compaction saves too little to lose the detail.
+const COMPACT_MIN_PERCENT = 20
+
+const contextPercent = async ($: EngineInterface): Promise<number | null> => {
+  const c = (await $.session.usage().catch(() => null))?.context
+  if (!c) return null
+  if (typeof c.percent === 'number') return c.percent
+  return typeof c.tokens === 'number' && c.window ? Math.round((c.tokens / c.window) * 100) : null
+}
+
+// Why an automatic note would be wasted now, or null: a compaction with nothing new since
+// would write a note of a note, and a small context is cheap to keep.
+const compactWaste = async ($: EngineInterface): Promise<string | null> => {
+  if ((await read($, lastCompactAt)) !== null && (await read($, turnsSinceCompact)) === 0) return 'nothing new since the last compaction'
+  const pct = await contextPercent($)
+  return pct !== null && pct < COMPACT_MIN_PERCENT ? `context ${pct}%` : null
 }
 
 // The note replaces the old context, as a compaction this mod answers itself: no model
@@ -320,13 +371,22 @@ const applyNote = async ($: EngineInterface, text: string): Promise<{ isApplied:
 // In the cache's last minute: write the note, then let it replace the old context at once.
 // The file stays until the next prompt, so a new conversation can still start from it.
 const writeHandoff = async ($: EngineInterface, deadline: number): Promise<void> => {
-  const note = await writeNote($, deadline)
-  if ('reason' in note) {
-    $.ui.toast(`Auto-handoff: ${note.reason}.`)
-    return
+  if (isNoteBusy) return
+  isNoteBusy = true
+  try {
+    const from = turnSeq
+    const note = await writeNote($, deadline)
+    if ('reason' in note) {
+      $.ui.toast(`Auto-handoff: ${note.reason}.`)
+      return
+    }
+    if (await dropStaleNote($, note.path, from)) return
+    const applied = await applyNote($, note.text)
+    if (applied.isApplied) await markCompacted($)
+    $.ui.toast(appliedToast(note.text, applied))
+  } finally {
+    isNoteBusy = false
   }
-  const applied = await applyNote($, note.text)
-  $.ui.toast(appliedToast(note.text, applied))
 }
 
 // `Handoff all`: one press, and every open session writes its own note.
@@ -346,6 +406,8 @@ const requestHandoffAll = async ($: EngineInterface): Promise<void> => {
 const answerRequest = async ($: EngineInterface, at: number): Promise<void> => {
   if (at - requestCheckedAt < REQUEST_POLL_MS) return
   requestCheckedAt = at
+  // A note under way: the request waits for the next poll instead of being dropped.
+  if (isNoteBusy) return
   const askedAt = Number((await $.fs.read(await requestPath($)).catch(() => '')).trim())
   if (!Number.isFinite(askedAt) || askedAt <= handledRequestAt || askedAt < startedAt || at - askedAt > REQUEST_MAX_AGE_MS) return
   handledRequestAt = askedAt
@@ -374,7 +436,15 @@ const tick = async ($: EngineInterface): Promise<void> => {
     return
   }
   const ho = await read($, handoff)
-  if ((await read($, autoHandoff)) && ho.forExpiresAt !== deadline) await writeHandoff($, deadline)
+  if (!(await read($, autoHandoff)) || ho.forExpiresAt === deadline || isNoteBusy) return
+  // Nothing new since a compaction, or a small context: this deadline passes without a note.
+  const waste = await compactWaste($)
+  if (waste) {
+    await update($, handoff, prev => ({ ...prev, forExpiresAt: deadline }))
+    $.ui.log(`jimal-session: auto-handoff skipped: ${waste}`, { to: 'debug' })
+    return
+  }
+  await writeHandoff($, deadline)
 }
 
 // ---------------------------------------------------------------------------
@@ -846,6 +916,140 @@ const shapeContext = (shaped: string) =>
 // The `usage` tool: the band's figures as text the model can read, for when the person
 // asks about their limits, the cache or the cost (the band is drawn for the person alone).
 
+// ---------------------------------------------------------------------------
+// Auto-compact: the context is replaced by a handover note at two moments, while the cache
+// is warm and the note costs little to write.
+//  - A stage's end: the model calls the `stage_done` tool when the work it was asked for is
+//    finished; once that reply ends, the note is written and applied.
+//  - Unrelated work: a typed prompt the small model judges to start a new task is held back
+//    (dropped), the note written and applied, and the same text sent again as the person's
+//    own words, so the answer starts from the note. The host refuses a compaction while a
+//    prompt.submit hook holds the turn, so the prompt has to go round.
+// Neither runs within COMPACT_GAP_MS of the last compaction, with nothing new since one, or
+// under COMPACT_MIN_PERCENT of the context window. Work still running is no bar: the note
+// carries it (the handoff skill's "Still running" section).
+
+const STAGE_TOOL = 'stage_done'
+const AUTO_COMPACT_STORE_KEY = 'autoCompact'
+const COMPACT_GAP_MS = 30 * 60 * 1000
+const COMPACT_LABEL = '◷ Auto-compact · writing note…'
+// The model was told a stage ended; the note follows once its reply is over.
+let isStageDone = false
+
+const RELATED_SYSTEM = [
+  'You decide whether a new message from a user to a coding assistant continues the work of the conversation so far, or starts unrelated work.',
+  'Answer NEW only when the new message is clearly about a different task or topic and needs nothing from the earlier work.',
+  "Answers to the assistant's questions, follow-ups, corrections, go-aheads, requests to commit, push, test, explain or extend the earlier work, and anything you are unsure about are RELATED.",
+  'Reply with exactly one word: RELATED or NEW.',
+].join('\n')
+
+// Enough words to judge: a short go-ahead ("push", "好") continues the work by itself.
+const isSubstantial = (text: string) =>
+  isChinese(text) ? text.replace(/\s/g, '').length >= 8 : text.trim().split(/\s+/).length >= 4
+
+const recentWork = (messages: readonly SessionMessage[]) =>
+  messages
+    .slice(-8)
+    .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.text ?? '').replace(/\s+/g, ' ').slice(0, 600)}`)
+    .join('\n')
+
+// True only on a clear NEW: a failed call, an empty transcript or any doubt keep the context.
+const isNewTask = async ($: EngineInterface, text: string): Promise<boolean> => {
+  const messages = await $.session.messages().catch(() => [] as SessionMessage[])
+  if (messages.length === 0) return false
+  const r = await $.model
+    .complete({ model: SMALL_MODEL, system: RELATED_SYSTEM, prompt: `Conversation so far (latest messages):\n${recentWork(messages)}\n\nNew message:\n${text.slice(0, 2000)}`, maxTokens: 8 })
+    .catch(() => null)
+  return !!r && r.isAnswered && /^\W*NEW\b/i.test(r.text)
+}
+
+// Why Auto-compact holds back now, or null.
+const autoCompactBar = async ($: EngineInterface): Promise<string | null> => {
+  if (!(await read($, autoCompact))) return 'off'
+  if (isNoteBusy) return 'a note is being written'
+  const last = await read($, lastCompactAt)
+  if (last !== null && (await $.clock.now()) - last < COMPACT_GAP_MS) return 'compacted less than 30 minutes ago'
+  return compactWaste($)
+}
+
+// Writes the note and lets it replace the context; the band counts it while it runs and
+// shows nothing after. A failure is a toast, and the session keeps its own context.
+const runAutoCompact = async ($: EngineInterface): Promise<boolean> => {
+  if (isNoteBusy) return false
+  isNoteBusy = true
+  try {
+    return await counted($, COMPACT_LABEL, async () => {
+      const from = turnSeq
+      const note = await writeNote($, (await read($, expiresAt)) ?? (await $.clock.now()), 'auto-compact')
+      if ('reason' in note) {
+        $.ui.toast(`Auto-compact: ${note.reason}.`)
+        return false
+      }
+      if (await dropStaleNote($, note.path, from)) return false
+      const applied = await applyNote($, note.text)
+      if (!applied.isApplied) {
+        $.ui.toast(say(note.text, `Auto-compact: ${applied.reason}`, `自动压缩没有生效：${applied.reason}`))
+        return false
+      }
+      await markCompacted($)
+      return true
+    })
+  } finally {
+    isNoteBusy = false
+  }
+}
+
+// After a reply that ended a stage.
+const compactAtStageEnd = async ($: EngineInterface): Promise<void> => {
+  const bar = await autoCompactBar($)
+  if (bar) {
+    $.ui.log(`jimal-session: auto-compact at a stage's end skipped: ${bar}`, { to: 'debug' })
+    return
+  }
+  await runAutoCompact($)
+}
+
+// A typed prompt that starts unrelated work: dropped now, sent again as typed once the note
+// has replaced the context. Null when the prompt goes on as it is. A prompt typed over a
+// running turn, or carrying images (a plugin's prompt cannot carry them), is never held.
+const compactFirst = async (
+  $: EngineInterface,
+  e: { text: string; origin?: { kind: string }; turnId?: string; attachments?: readonly unknown[]; command?: unknown; isMeta?: true },
+): Promise<{ drop: string } | null> => {
+  if (e.command || e.isMeta || e.turnId || (e.attachments?.length ?? 0) > 0 || !isTyped(e)) return null
+  const text = e.text
+  if (!isSubstantial(text) || (await $.session.turns().catch(() => 0)) === 0) return null
+  if (await autoCompactBar($)) return null
+  if (!(await isNewTask($, text))) return null
+  // A plugin's prompt is not shaped, so the `++` that asks for it is not passed on.
+  const again = text.replace(SHAPE_MARK, '')
+  $.clock.after(APPLY_DELAY_MS, () => {
+    void (async () => {
+      // The rules again, at the moment of compacting: another note, or the switch turned off,
+      // may have come in while the small model judged the prompt.
+      if (!(await autoCompactBar($).catch(() => 'unknown'))) await runAutoCompact($).catch(() => false)
+      // The prompt goes again whether or not the note was applied: it is never lost.
+      const sent = await $.prompt.submit({ text: again, asUser: true }).catch(() => null)
+      if (sent && !sent.drop) return
+      // Back into the box at the cursor, beside whatever the person has typed since.
+      const filled = await $.prompt.fill({ text: again, mode: 'insert' }).catch(() => null)
+      if (filled?.isFilled) {
+        $.ui.toast(say(text, 'Auto-compact: your message could not be sent again; it is back in the prompt box.', '自动压缩：你的消息没能重新发出，已放回输入框。'))
+        return
+      }
+      $.ui.log(`jimal-session: a held prompt could not be sent again or put back: ${again}`, { to: 'debug' })
+      $.ui.toast(say(text, `Auto-compact: your message could not be sent again. It was: ${again.slice(0, 400)}`, `自动压缩：你的消息没能重新发出，原文是：${again.slice(0, 400)}`))
+    })().catch(() => undefined)
+  })
+  return {
+    drop: say(
+      text,
+      'Auto-compact: this looks like a new task, so the old context is replaced by a handover note first; your message follows by itself.',
+      '自动压缩：这条消息看起来是新任务，先把旧的上下文换成交接笔记，你的消息随后自动发出。',
+    ),
+  }
+}
+
 const USAGE_TOOL = 'usage'
 
 const fmtLeft = (ms: number): string => {
@@ -887,7 +1091,7 @@ const usageReport = async ($: EngineInterface): Promise<string> => {
   if (fresh?.cost) lines.push(`Session cost: ≈$${fresh.cost.usd.toFixed(2)}`)
   const warm = await read($, keepWarm)
   const auto = await read($, autoHandoff)
-  lines.push(`Switches: Keep warm ${warm ? 'on' : 'off'}, Auto-handoff ${auto ? 'on' : 'off'}`)
+  lines.push(`Switches: Keep warm ${warm ? 'on' : 'off'}, Auto-handoff ${auto ? 'on' : 'off'}, Auto-compact ${(await read($, autoCompact)) ? 'on' : 'off'}`)
   return lines.join('\n')
 }
 
@@ -910,6 +1114,8 @@ export const register: Register = on => {
     }
     const keptDetails = await $.store.get(DETAILS_STORE_KEY).catch(() => undefined)
     await update($, isDetailsOpen, () => keptDetails === true)
+    const keptCompact = await $.store.get(AUTO_COMPACT_STORE_KEY).catch(() => undefined)
+    await update($, autoCompact, () => keptCompact === true)
     const keptUpdate = (await $.store.get(UPDATE_STORE_KEY).catch(() => undefined)) as Partial<PluginUpdate> | undefined
     if (keptUpdate && typeof keptUpdate === 'object') {
       await update($, pluginUpdate, () => ({
@@ -935,6 +1141,17 @@ export const register: Register = on => {
         'Call it when the person asks about their usage, limits, quota, cache or cost; it takes no input.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     }).catch(() => undefined)
+    // Registered whether Auto-compact is on or not: a tool list that changes mid-session
+    // would cost the prompt cache. Off, a call changes nothing and says so.
+    await $.tool.register({
+      name: STAGE_TOOL,
+      description:
+        "Mark the end of a stage of work, so the user's Auto-compact (when they have it on) can replace this conversation's context with a handover note once your reply ends. " +
+        'Call it at most once, near the end of a reply, only when the work the user asked for in this stretch is finished: delivered and checked, committed where that applies, ' +
+        'and nothing in this reply waits on their answer or decision. Do not call it mid-task, when you ask the user something, or when they will plainly carry on with the same work next. ' +
+        'Work still running in the background is no reason to hold back: the note carries it. It takes no input.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    }).catch(() => undefined)
     await $.command.register({
       name: 'handoff-now',
       description: 'Write a handover note now and let it replace this conversation\'s context (old messages stay on screen); says whether it worked',
@@ -948,13 +1165,25 @@ export const register: Register = on => {
   // that asks for it, so the note is applied from a timer once the command has ended, as
   // the auto-handoff applies it, and a toast says whether it worked.
   on('command.run', { command: 'handoff-now' }, async $ => {
+    if (isNoteBusy) return { text: 'A handover note is being written already; try again once it is done.' }
+    // Held from the note's writing until its compaction, which runs after this command.
+    isNoteBusy = true
     const at = await $.clock.now()
-    const note = await writeNote($, (await read($, expiresAt)) ?? at)
-    if ('reason' in note) return { text: `Handover note not written: ${note.reason}.` }
+    const note = await writeNote($, (await read($, expiresAt)) ?? at).catch((err: unknown) => ({ reason: String((err as Error)?.message ?? err) }))
+    if ('reason' in note) {
+      isNoteBusy = false
+      return { text: `Handover note not written: ${note.reason}.` }
+    }
     $.clock.after(APPLY_DELAY_MS, () => {
       void applyNote($, note.text)
-        .then(applied => $.ui.toast(appliedToast(note.text, applied)))
+        .then(async applied => {
+          if (applied.isApplied) await markCompacted($)
+          $.ui.toast(appliedToast(note.text, applied))
+        })
         .catch(() => undefined)
+        .finally(() => {
+          isNoteBusy = false
+        })
     })
     return {
       text: say(
@@ -972,8 +1201,21 @@ export const register: Register = on => {
 
   on('tool.call', { tool: `mcp__jimal-session__${USAGE_TOOL}` }, async $ => ({ result: await usageReport($) }))
 
+  on('tool.call', { tool: `mcp__jimal-session__${STAGE_TOOL}` }, async ($, e) => {
+    if (!(await read($, autoCompact))) return { result: 'Auto-compact is off; nothing changes.' }
+    // A subagent's stage is not the conversation's: only the main thread marks one.
+    if ((e as { agentId?: string }).agentId !== undefined) return { result: 'Only the main conversation marks a stage; nothing changes.' }
+    isStageDone = true
+    return { result: 'Noted. If nothing holds it back, a handover note replaces the context once this reply ends; finish the reply as usual.' }
+  })
+
   on('turn.start', async ($, e, next) => {
-    if (e.agentId === undefined) await update($, isBusy, () => true)
+    if (e.agentId === undefined) {
+      await update($, isBusy, () => true)
+      turnSeq += 1
+      // A stage marked in an earlier turn that never completed does not carry over.
+      isStageDone = false
+    }
     return next(e)
   })
 
@@ -983,6 +1225,12 @@ export const register: Register = on => {
       const at = await $.clock.now()
       await update($, expiresAt, () => at + CACHE_TTL_MS)
       await update($, isBusy, () => false)
+      await update($, turnsSinceCompact, n => n + 1)
+      // A stage ended in this reply: compact once it is over (the host refuses one under the turn).
+      if (isStageDone) {
+        isStageDone = false
+        $.clock.after(APPLY_DELAY_MS, () => void compactAtStageEnd($).catch(() => undefined))
+      }
     }
     return result
   })
@@ -1071,6 +1319,9 @@ export const register: Register = on => {
         return next({ ...e, text: `${noteMessage(note)}\n\n---\n\n${e.text}` })
       }
     }
+    // Unrelated work with Auto-compact on: the old context goes first, the prompt follows.
+    const held = await compactFirst($, e).catch(() => null)
+    if (held) return held
     return withPrompt(e)
   })
 
@@ -1190,14 +1441,18 @@ export const register: Register = on => {
     const updating = await read($, isUpdating)
     const color = cacheColor(left, isWorking)
 
+    const isCompact = await read($, autoCompact)
+    const compactedAt = await read($, lastCompactAt)
+    // Auto-compact's note shows only while it is under way (counted in promptStatus), never after.
     const note =
-      ho.status === 'writing' ? 'writing note…' : ho.status === 'saved' ? (ho.isApplied ? 'note applied' : 'note saved') : ho.status === 'unapplied' ? 'note not applied' : ho.status === 'failed' ? 'note failed' : ''
+      ho.by === 'auto-compact' ? '' : ho.status === 'writing' ? 'writing note…' : ho.status === 'saved' ? (ho.isApplied ? 'note applied' : 'note saved') : ho.status === 'unapplied' ? 'note not applied' : ho.status === 'failed' ? 'note failed' : ''
     // The middle of the row: what a feature is doing now, else the switches that are on,
     // scrolled by the tick when they do not fit.
     const working = (await read($, promptStatus)) || (note ? `◷ Handoff · ${note}` : '')
     const onList = [
       ...(isWarm ? ['Keep warm'] : []),
       ...(isAuto ? ['Auto-handoff'] : []),
+      ...(isCompact ? ['Auto-compact'] : []),
       ...(sw.fixEnglish ? ['Fix English', ...(sw.inReply ? ['In reply'] : []), ...(sw.inPane ? ['In pane'] : [])] : []),
       ...(sw.shapePrompt ? ['Shape prompt'] : []),
       ...(up.isOn ? ['Auto-update'] : []),
@@ -1366,6 +1621,16 @@ export const register: Register = on => {
               await update($, keepWarmUntil, () => null)
             }
           }),
+          // Auto-compact goes with either: it works at a stage's end and before unrelated work.
+          row('auto-compact', 'Auto-compact', isCompact, async () => {
+            const value = await update($, autoCompact, v => !v)
+            await $.store.set(AUTO_COMPACT_STORE_KEY, value).catch(() => undefined)
+          }),
+          <Box key="compact-status-row" height={1}>
+            <Text color={GREY} wrap="truncate">
+              {compactedAt === null ? 'not compacted yet' : `last compacted ${clockTime(compactedAt)}`}
+            </Text>
+          </Box>,
         ])}
         {box('plugins', 'Plugins', [
           // Turned on with a check due, the update runs at once; otherwise at the next start.
