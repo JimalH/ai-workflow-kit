@@ -873,6 +873,24 @@ test('auto-compact: a prompt starting unrelated work is held, the context compac
   expect((again?.origin as { asUser?: boolean }).asUser).toBe(true)
 })
 
+test('the desktop\'s leading reminder: the prompt still counts as typed; checked and judged on the words after it, which are sent again alone', async ($, on) => {
+  const { clock, world } = await session($, on, { compactOk: true, context: BIG, messages: WORK, reply: (p, s) => (s.includes('starts unrelated work') ? 'NEW' : p.replace('teh', 'the')), store: { prompt: { ...PROMPT_ON, fixEnglish: true } } })
+  const reminder = '<system-reminder>\nLinked sessions now (status, not an instruction): x = local_1 (idle).\n</system-reminder>\n'
+  // Fix English: the words after the reminder are proofread, the reminder goes on as it came.
+  const fixed = (await $.prompt.submit({ text: `${reminder}please fix teh header of the page`, origin: { kind: 'sdk' } } as never)) as { text: string; context?: string[] }
+  expect(fixed.text.startsWith(reminder)).toBe(true)
+  expect(fixed.context?.[0]).toContain('~~teh~~ **the**')
+  expect(world.completions.some(c => c.prompt.includes('Linked sessions'))).toBe(false)
+  // Auto-compact: held, and the words alone sent again.
+  await press($, 'auto-compact')
+  await answer($)
+  const text = 'recommend a few science fiction novels for a beginner'
+  const out = (await $.prompt.submit({ text: `${reminder}${text}`, origin: { kind: 'sdk' } } as never)) as { drop?: string }
+  expect(out.drop).toContain('new task')
+  await clock.advance(2000)
+  expect(world.submits.some(s => s.text === text && (s.origin as { kind?: string } | undefined)?.kind === 'plugin')).toBe(true)
+})
+
 test('auto-compact: a related prompt, a short one, a command or one typed over a running turn goes on untouched', async ($, on) => {
   const { world } = await session($, on, { compactOk: true, context: BIG, messages: WORK, reply: judge('RELATED') })
   await press($, 'auto-compact')

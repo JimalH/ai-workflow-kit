@@ -226,3 +226,7 @@ claude plugin install jimal-session --marketplace JimalH/ai-workflow-kit
 - The handover note gains a `Still running` section: background tasks, subagents and awaited sessions, with their output and what to do when they report, so their reports can be handled after a compaction. The `Current state` section names uncommitted changes.
 - One note at a time across Auto-compact, Auto-handoff, `Handoff all` and `/handoff-now`. A note written while another prompt started is dropped instead of applied, so it never erases the newer exchange (Auto-compact and the auto-handoff). Only the main conversation can mark a stage. The auto-handoff now passes a cache deadline without a note when nothing is new since a compaction, or when the context is under 20% of the window.
 - The `usage` tool's switches line names Auto-compact.
+
+## Changes (0.11.1)
+
+- A prompt typed in the desktop app while the session has linked sessions counts as typed again. The app puts a `<system-reminder>` listing them before the typed words, in the same prompt text, and since 0.10.1 the whole prompt was taken for host text: Fix English, Shape prompt and Auto-compact's check of unrelated work all passed it by. The features now work on the words after the leading reminders and pass the reminders on as they came; a held prompt is sent again without them.
