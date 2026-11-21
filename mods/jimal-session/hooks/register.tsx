@@ -997,6 +997,9 @@ let isStageDone = false
 // /reload-plugins), the host has no request to fork, so no note can be written: a prompt
 // held then would only go round for nothing.
 let hasAnsweredSinceLoad = false
+// A held prompt put back into the box because no compaction happened: sent from there, it is
+// not held again.
+let passThrough: string | null = null
 
 const RELATED_SYSTEM = [
   'You decide whether a new message from a user to a coding assistant continues the work of the conversation so far, or starts unrelated work.',
@@ -1089,6 +1092,11 @@ const compactFirst = async (
   if (e.command || e.isMeta || e.turnId || (e.attachments?.length ?? 0) > 0 || !isTyped(e)) return null
   // Judged and sent again without the host's leading blocks: they were about this moment.
   const text = splitTyped(e.text).typed
+  // The prompt put back after a compaction that did not happen goes on this time.
+  if (passThrough !== null && text.trim() === passThrough.trim()) {
+    passThrough = null
+    return null
+  }
   if (!hasAnsweredSinceLoad || !isSubstantial(text) || (await $.session.turns().catch(() => 0)) === 0) return null
   if (await autoCompactBar($)) return null
   if (!(await isNewTask($, text))) return null
@@ -1105,7 +1113,19 @@ const compactFirst = async (
     void (async () => {
       // The rules again, at the moment of compacting: another note, or the switch turned off,
       // may have come in while the small model judged the prompt.
-      if (!(await autoCompactBar($).catch(() => 'unknown'))) await runAutoCompact($, review).catch(() => false)
+      const isCompacted = !(await autoCompactBar($).catch(() => 'unknown')) && (await runAutoCompact($, review).catch(() => false))
+      // Not compacted, and the review has nowhere to go: the prompt goes back into the box as
+      // typed (its `++` too), to be sent as any typed prompt, with its review beside it; it is
+      // not held a second time.
+      if (!isCompacted && review) {
+        passThrough = text
+        const back = await $.prompt.fill({ text, mode: 'insert' }).catch(() => null)
+        if (back?.isFilled) {
+          $.ui.toast(say(text, 'Auto-compact could not compact this time; your message is back in the prompt box: press Enter to send it.', '自动压缩这次没能压缩；你的消息已放回输入框，按回车发送即可。'))
+          return
+        }
+        passThrough = null
+      }
       // The prompt goes again whether or not the note was applied: it is never lost.
       const sent = await $.prompt.submit({ text: again, asUser: true }).catch(() => null)
       if (sent && !sent.drop) return
