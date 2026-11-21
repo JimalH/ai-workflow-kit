@@ -976,12 +976,17 @@ test('auto-compact: a held prompt whose compaction fails goes back into the box 
   expect(world.fills).toEqual([text])
   expect(world.submits.filter(s => (s.origin as { kind?: string } | undefined)?.kind === 'plugin')).toHaveLength(0)
   expect(world.toasts.some(t => t.includes('press Enter to send it'))).toBe(true)
-  // Sent from the box: it goes on, shaped beside it, and is not judged again.
+  // Sent from the box, with words the person added meanwhile: it goes on, shaped beside it,
+  // and is not judged again.
   const judged = world.completions.filter(c => c.system.includes('starts unrelated work')).length
-  const out = (await $.prompt.submit({ text, origin: { kind: 'composer' } } as never)) as { drop?: string; context?: string[] }
+  const out = (await $.prompt.submit({ text: `${text} and also a few films`, origin: { kind: 'composer' } } as never)) as { drop?: string; context?: string[] }
   expect(out.drop).toBeUndefined()
   expect(out.context?.some(c => c.includes(arranged))).toBe(true)
   expect(world.completions.filter(c => c.system.includes('starts unrelated work'))).toHaveLength(judged)
+  // Only that one: the prompt after it is judged again.
+  await answer($)
+  await $.prompt.submit({ text: 'recommend a few science fiction novels for a beginner', origin: { kind: 'composer' } } as never)
+  expect(world.completions.filter(c => c.system.includes('starts unrelated work'))).toHaveLength(judged + 1)
 })
 
 test('auto-compact, desktop: a later compaction carries no review left from a held prompt', async ($, on) => {
