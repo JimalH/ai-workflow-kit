@@ -990,6 +990,10 @@ const COMPACT_GAP_MS = 30 * 60 * 1000
 const COMPACT_LABEL = '◷ Auto-compact · writing note…'
 // The model was told a stage ended; the note follows once its reply is over.
 let isStageDone = false
+// A main-thread answer completed since this module loaded. Before one (a fresh load, or
+// /reload-plugins), the host has no request to fork, so no note can be written: a prompt
+// held then would only go round for nothing.
+let hasAnsweredSinceLoad = false
 
 const RELATED_SYSTEM = [
   'You decide whether a new message from a user to a coding assistant continues the work of the conversation so far, or starts unrelated work.',
@@ -1074,7 +1078,7 @@ const compactFirst = async (
   if (e.command || e.isMeta || e.turnId || (e.attachments?.length ?? 0) > 0 || !isTyped(e)) return null
   // Judged and sent again without the host's leading blocks: they were about this moment.
   const text = splitTyped(e.text).typed
-  if (!isSubstantial(text) || (await $.session.turns().catch(() => 0)) === 0) return null
+  if (!hasAnsweredSinceLoad || !isSubstantial(text) || (await $.session.turns().catch(() => 0)) === 0) return null
   if (await autoCompactBar($)) return null
   if (!(await isNewTask($, text))) return null
   // Fix English and Shape prompt now, as for any typed prompt: a plugin's prompt carries no
@@ -1300,6 +1304,7 @@ export const register: Register = on => {
       await update($, expiresAt, () => at + CACHE_TTL_MS)
       await update($, isBusy, () => false)
       await update($, turnsSinceCompact, n => n + 1)
+      hasAnsweredSinceLoad = true
       // A stage ended in this reply: compact once it is over (the host refuses one under the turn).
       if (isStageDone) {
         isStageDone = false

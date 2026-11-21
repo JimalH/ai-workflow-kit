@@ -931,6 +931,14 @@ test('auto-compact: a held prompt that cannot be sent again has its review withd
   expect(world.fills).toContain('recommend a few scince fiction novels for a beginner')
 })
 
+test('auto-compact: before the first answer since the mod loaded, no prompt is held (no note could be written yet)', async ($, on) => {
+  const { world } = await session($, on, { compactOk: true, context: BIG, messages: WORK, reply: judge('NEW') })
+  await press($, 'auto-compact')
+  const out = (await $.prompt.submit({ text: 'recommend a few documentaries for the weekend please', origin: { kind: 'composer' } } as never)) as { drop?: string; text?: string }
+  expect(out.drop).toBeUndefined()
+  expect(world.completions.some(c => c.system.includes('starts unrelated work'))).toBe(false)
+})
+
 test('auto-compact: a related prompt, a short one, a command or one typed over a running turn goes on untouched', async ($, on) => {
   const { world } = await session($, on, { compactOk: true, context: BIG, messages: WORK, reply: judge('RELATED') })
   await press($, 'auto-compact')
