@@ -21,15 +21,19 @@ type World = {
   submits: { text: string; origin?: unknown }[]
   fills: string[]
   appends: string[]
+  // What the mod's own session.compact hook answered, through the desktop's /compact detour.
+  compacted: { role: string; text: string }[][]
+  release?: () => void
+  logs: string[]
 }
 
 // A session in E:\AI workflow on Windows, with the fork, files and commands recorded.
 async function session(
   $: Engine,
   on: On,
-  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; weekOnly?: boolean; context?: Record<string, unknown>; cost?: { usd: number }; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; run?: (argv: string[]) => Partial<{ exitCode: number; stdout: string; stderr: string }> | undefined; reply?: string | ((prompt: string, system: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean; compactOk?: boolean; messages?: { role: string; text: string }[]; refusePluginPrompt?: boolean; refuseFill?: boolean; turnDuringFork?: boolean } = {},
+  opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; weekOnly?: boolean; context?: Record<string, unknown>; cost?: { usd: number }; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; run?: (argv: string[]) => Partial<{ exitCode: number; stdout: string; stderr: string }> | undefined; reply?: string | ((prompt: string, system: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean; compactOk?: boolean; messages?: { role: string; text: string }[]; refusePluginPrompt?: boolean; refuseFill?: boolean; turnDuringFork?: boolean; desktopCompact?: boolean } = {},
 ) {
-  const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store }, completions: [], opens: [], closes: [], submits: [], fills: [], appends: [] }
+  const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store }, completions: [], opens: [], closes: [], submits: [], fills: [], appends: [], compacted: [], logs: [] }
   const clock = mock.clock(on, { now: START })
   mock.env(on, { USERPROFILE: 'C:\\Users\\me' })
   on('session.start', async () => ({ cwd: 'E:\\AI workflow' }) as never)
@@ -102,7 +106,17 @@ async function session(
     world.compacts.push(String((e as { instructions?: string }).instructions))
     // `compactOk`: the host compacts as asked (the kit has no transcript of its own to do it).
     if (opts.compactOk) return { messages: [{ role: 'user', text: 'compacted', toolUses: [] }] } as never
+    // `desktopCompact`: as in the desktop app, a plugin's own compaction is refused (an SDK session).
+    if (opts.desktopCompact) return { skip: 'a plugin cannot compact in a headless SDK session' } as never
     return { skip: 'test: no model compaction here' } as never
+  })
+  // The /compact command: the engine would compact under it. A hooks module may not compact
+  // itself, so the test does it (compactNow) while this waits, then lets the command end.
+  on('command.run', { command: 'compact' }, async () => {
+    await new Promise<void>(resolve => {
+      world.release = resolve
+    })
+    return { value: { text: '' } } as never
   })
   on('session.messages', () => ({ value: (opts.messages ?? []).map(m => ({ ...m, toolUses: [] })) }) as never)
   on('turn.complete', async () => ({ text: '' }) as never)
@@ -123,6 +137,10 @@ async function session(
     return { isFilled: !opts.refuseFill, text: '', cursor: 0 } as never
   })
   on('prompt.change', (_$, e) => ({ text: (e as { text: string }).text }) as never)
+  on('ui.log', (_$, e) => {
+    world.logs.push(String((e as { text: string }).text))
+    return { value: undefined } as never
+  })
   on('ui.toast', (_$, e) => {
     world.toasts.push(String((e as { text: string }).text))
     return { value: undefined } as never
@@ -134,6 +152,17 @@ async function session(
 
   await $.session.start({ source: 'startup', cwd: 'E:\\AI workflow', surface: 'desktop', isInteractive: true } as never)
   return { clock, world }
+}
+
+// The engine's side of the desktop's /compact detour: the compaction this mod's hook answers,
+// then the command ends. Returns the rows the hook answered with.
+async function compactNow($: Engine, world: World): Promise<{ role: string; text: string }[] | undefined> {
+  const compact = $.session.compact as unknown as (e: unknown) => Promise<{ messages?: { role: string; text: string }[] }>
+  const r = await compact({ trigger: 'manual', instructions: 'jimal-session handoff', messages: [{ role: 'user', text: 'old', toolUses: [] }] })
+  if (r.messages) world.compacted.push(r.messages)
+  world.release?.()
+  world.release = undefined
+  return r.messages
 }
 
 const answer = ($: Engine) => ($.turn.complete as (e: unknown) => Promise<unknown>)({ reason: 'answer', answer: 'done' })
@@ -898,37 +927,68 @@ test('the desktop\'s leading reminder: the prompt still counts as typed; checked
   expect(world.submits.some(s => s.text === text && (s.origin as { kind?: string } | undefined)?.kind === 'plugin')).toBe(true)
 })
 
-test('auto-compact: a held prompt keeps its Fix English review and its arrangement, in a row just before it is sent again', async ($, on) => {
+test('auto-compact, desktop: a held prompt keeps its Fix English review and its arrangement, in the note\'s row just before it is sent again', async ($, on) => {
   const arranged = '**Tasks**\n- recommend science fiction novels for a beginner'
   const reply = (p: string, s: string) => (s.includes('starts unrelated work') ? 'NEW' : s.includes('English tutor') ? p.replace('scince', 'science') : arranged)
-  const { clock, world } = await session($, on, { compactOk: true, context: BIG, messages: WORK, reply, store: { prompt: { ...PROMPT_ON, fixEnglish: true, shapePrompt: true } } })
+  const { clock, world } = await session($, on, { fork: '## Goal\nCron parser.', desktopCompact: true, context: BIG, messages: WORK, reply, store: { prompt: { ...PROMPT_ON, fixEnglish: true, shapePrompt: true } } })
   await press($, 'auto-compact')
   await answer($)
   const out = (await $.prompt.submit({ text: 'recommend a few scince fiction novels for a beginner ++', origin: { kind: 'composer' } } as never)) as { drop?: string }
   expect(out.drop).toContain('new task')
   await clock.advance(2000)
-  // The review and the arrangement, before the prompt, saying so.
-  expect(world.appends).toHaveLength(1)
-  expect(world.appends[0]).toContain('The prompt that follows this note was reviewed')
-  expect(world.appends[0]).toContain('~~scince~~ **science**')
-  expect(world.appends[0]).toContain('arranged the prompt that follows this note')
-  expect(world.appends[0]).toContain(arranged)
+  // The /compact detour, answered by the mod: the note, then the review and the arrangement,
+  // saying which prompt they are about. No row of their own.
+  await compactNow($, world)
+  await clock.advance(1000)
+  expect(world.logs).toEqual([])
+  expect(world.compacted).toHaveLength(1)
+  const noteRow = world.compacted[0]?.[0]?.text ?? ''
+  expect(noteRow).toContain('## Goal\nCron parser.')
+  expect(noteRow).toContain('if the next prompt does not begin "recommend a few scince fiction novels fo"')
+  expect(noteRow).toContain('The prompt that follows this note was reviewed')
+  expect(noteRow).toContain('~~scince~~ **science**')
+  expect(noteRow).toContain('arranged the prompt that follows this note')
+  expect(noteRow).toContain(arranged)
+  expect(world.appends).toHaveLength(0)
   // The prompt as typed, without the `++` mark, after it.
   const again = world.submits.filter(s => (s.origin as { kind?: string } | undefined)?.kind === 'plugin')
   expect(again.map(s => s.text)).toEqual(['recommend a few scince fiction novels for a beginner'])
+  // The note file is gone: written for this session, it must not open a new conversation.
+  expect(Object.keys(world.writes).filter(p => p.includes('/handoffs/'))).toHaveLength(0)
 })
 
-test('auto-compact: a held prompt that cannot be sent again has its review withdrawn', async ($, on) => {
-  const reply = (p: string, s: string) => (s.includes('starts unrelated work') ? 'NEW' : p.replace('scince', 'science'))
-  const { clock, world } = await session($, on, { compactOk: true, context: BIG, messages: WORK, reply, refusePluginPrompt: true, store: { prompt: { ...PROMPT_ON, fixEnglish: true } } })
+test('auto-compact, desktop: a later compaction carries no review left from a held prompt', async ($, on) => {
+  const arranged = '**Tasks**\n- recommend science fiction novels for a beginner'
+  const reply = (p: string, s: string) => (s.includes('starts unrelated work') ? 'NEW' : arranged)
+  const { clock, world } = await session($, on, { fork: '## Goal\nCron parser.', desktopCompact: true, context: BIG, messages: WORK, reply, store: { prompt: { ...PROMPT_ON, shapePrompt: true } } })
   await press($, 'auto-compact')
   await answer($)
-  await $.prompt.submit({ text: 'recommend a few scince fiction novels for a beginner', origin: { kind: 'composer' } } as never)
+  await $.prompt.submit({ text: 'recommend a few science fiction novels for a beginner', origin: { kind: 'composer' } } as never)
   await clock.advance(2000)
-  expect(world.appends).toHaveLength(2)
-  expect(world.appends[0]).toContain('~~scince~~ **science**')
-  expect(world.appends[1]).toContain('Disregard the review')
-  expect(world.fills).toContain('recommend a few scince fiction novels for a beginner')
+  await compactNow($, world)
+  await clock.advance(1000)
+  await answer($)
+  // The next note (here /handoff-now) is the note alone.
+  await $.command.run({ command: 'handoff-now' } as never)
+  await clock.advance(2000)
+  await compactNow($, world)
+  await clock.advance(1000)
+  expect(world.compacted).toHaveLength(2)
+  expect(world.compacted[1]?.[0]?.text).not.toContain('arranged the prompt')
+})
+
+test('auto-compact: a stage\'s note is deleted once used, so a new conversation does not start from it', async ($, on) => {
+  const { clock, world } = await session($, on, { fork: '## Goal\nShip the band.', desktopCompact: true, context: BIG })
+  await press($, 'auto-compact')
+  await stageDone($)
+  await answer($)
+  await clock.advance(2000)
+  await compactNow($, world)
+  await clock.advance(1000)
+  expect(world.compacted).toHaveLength(1)
+  expect(Object.keys(world.writes).filter(p => p.includes('/handoffs/'))).toHaveLength(0)
+  // And the band shows nothing about it.
+  expect((await middleOf($))?.working).toBe('')
 })
 
 test('auto-compact: before the first answer since the mod loaded, no prompt is held (no note could be written yet)', async ($, on) => {

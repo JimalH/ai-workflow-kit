@@ -336,6 +336,9 @@ const isSdkRefusal = (reason: string) => /headless|SDK/.test(reason)
 // and the note waits here for the session.compact hook: the handoff stays quiet.
 const COMPACT_ARG = 'jimal-session handoff'
 let pendingNote: string | null = null
+// What rides with the next note this mod applies: a held prompt's review and arrangement, for
+// the prompt sent again right after it. Taken by the session.compact hook; null otherwise.
+let pendingExtras: string | null = null
 
 const applyNote = async ($: EngineInterface, text: string): Promise<{ isApplied: true } | { isApplied: false; reason: string }> => {
   const instructions = `${COMPACT_MARK}\n${text}`
@@ -1033,7 +1036,10 @@ const autoCompactBar = async ($: EngineInterface): Promise<string | null> => {
 
 // Writes the note and lets it replace the context; the band counts it while it runs and
 // shows nothing after. A failure is a toast, and the session keeps its own context.
-const runAutoCompact = async ($: EngineInterface): Promise<boolean> => {
+// `extras` (a held prompt's review) go into the note's own row. The note file is deleted
+// once used either way: it was written for this session in the middle of its work, not for
+// a new conversation in the project, which would otherwise start from it.
+const runAutoCompact = async ($: EngineInterface, extras: string | null = null): Promise<boolean> => {
   if (isNoteBusy) return false
   isNoteBusy = true
   try {
@@ -1045,7 +1051,12 @@ const runAutoCompact = async ($: EngineInterface): Promise<boolean> => {
         return false
       }
       if (await dropStaleNote($, note.path, from)) return false
-      const applied = await applyNote($, note.text)
+      pendingExtras = extras
+      const applied = await applyNote($, note.text).finally(() => {
+        pendingExtras = null
+      })
+      await deleteFile($, note.path)
+      await update($, handoff, (): Handoff => ({ status: 'idle', by: 'auto-compact' }))
       if (!applied.isApplied) {
         $.ui.toast(say(note.text, `Auto-compact: ${applied.reason}`, `自动压缩没有生效：${applied.reason}`))
         return false
@@ -1081,34 +1092,23 @@ const compactFirst = async (
   if (!hasAnsweredSinceLoad || !isSubstantial(text) || (await $.session.turns().catch(() => 0)) === 0) return null
   if (await autoCompactBar($)) return null
   if (!(await isNewTask($, text))) return null
-  // Fix English and Shape prompt now, as for any typed prompt: a plugin's prompt carries no
-  // context, so what would ride beside it goes in as a row of its own just before it.
+  // Fix English and Shape prompt now, as for any typed prompt. A plugin's prompt carries no
+  // context, so what would ride beside it goes into the note's own row, just before the
+  // prompt; it says which prompt it is about, so a prompt that does not follow is not misread.
   const extras = await promptExtras($, text, 'below').catch(() => ({ body: text.replace(SHAPE_MARK, ''), added: [] as string[] }))
   const again = extras.body
+  const review =
+    extras.added.length > 0
+      ? [`[jimal-session] The review below is about the person's next prompt, sent right after this note; if the next prompt does not begin "${again.slice(0, 40)}", disregard it.`, '', ...extras.added].join('\n')
+      : null
   $.clock.after(APPLY_DELAY_MS, () => {
     void (async () => {
       // The rules again, at the moment of compacting: another note, or the switch turned off,
       // may have come in while the small model judged the prompt.
-      if (!(await autoCompactBar($).catch(() => 'unknown'))) await runAutoCompact($).catch(() => false)
-      let isReviewed = false
-      if (extras.added.length > 0) {
-        isReviewed = await $.session
-          .append({ message: { type: 'user', content: [{ type: 'text', text: extras.added.join('\n\n') }] } })
-          .then(r => !(r && typeof r === 'object' && 'deny' in r && r.deny))
-          .catch((err: unknown) => {
-            $.ui.log(`jimal-session: the held prompt's review could not be added: ${String((err as Error)?.message ?? err)}`, { to: 'debug' })
-            return false
-          })
-      }
+      if (!(await autoCompactBar($).catch(() => 'unknown'))) await runAutoCompact($, review).catch(() => false)
       // The prompt goes again whether or not the note was applied: it is never lost.
       const sent = await $.prompt.submit({ text: again, asUser: true }).catch(() => null)
       if (sent && !sent.drop) return
-      // Not sent: the review row describes a prompt that does not follow, so it is withdrawn.
-      if (isReviewed) {
-        await $.session
-          .append({ message: { type: 'user', content: [{ type: 'text', text: '[jimal-session] Disregard the review and arrangement just above: the prompt they were about was not sent. Treat the next prompt on its own.' }] } })
-          .catch(() => undefined)
-      }
       // Back into the box at the cursor, beside whatever the person has typed since.
       const filled = await $.prompt.fill({ text: again, mode: 'insert' }).catch(() => null)
       if (filled?.isFilled) {
@@ -1323,8 +1323,12 @@ export const register: Register = on => {
     const note = e.instructions?.trim() === COMPACT_ARG ? (pendingNote ?? '') : (e.instructions ?? '').slice(COMPACT_MARK.length).trim()
     if (!note) return { skip: 'jimal-session: the handover note was not there to apply' }
     await update($, handoff, prev => ({ ...prev, isApplied: true }))
+    // A held prompt's review rides in the note's own row: no extra row, which the desktop
+    // host refuses a plugin outside a turn.
+    const extras = pendingExtras
+    pendingExtras = null
     const messages: SessionMessage[] = [
-      { role: 'user', text: noteMessage(note), toolUses: [] },
+      { role: 'user', text: extras ? `${noteMessage(note)}\n\n${extras}` : noteMessage(note), toolUses: [] },
       { role: 'assistant', text: noteAck(note), toolUses: [] },
     ]
     return { messages }
