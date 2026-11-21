@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, SessionMessage } from 'claude-code'
+import type { EngineInterface, Register, RenderChildren, SessionMessage } from 'claude-code'
 
 import type { Check, Handoff, Note, PluginUpdate, PromptSwitches, RateWindow, Segment } from '../types'
 
@@ -178,9 +178,9 @@ const turnOffIdleCompaction = async ($: EngineInterface): Promise<string | null>
   return null
 }
 
-type Note = { path: string; mtimeMs: number }
+type NoteFile = { path: string; mtimeMs: number }
 
-const listNotes = async ($: EngineInterface): Promise<Note[]> => {
+const listNotes = async ($: EngineInterface): Promise<NoteFile[]> => {
   const dir = await notesDir($)
   const entries = await $.fs.list(dir).catch(() => [])
   return entries
@@ -260,10 +260,10 @@ const warm = async ($: EngineInterface): Promise<void> => {
 // Writes a handover note with a forked request and saves it; the reason when it fails.
 // `by` marks a note Auto-compact writes, which the band shows only while it is under way.
 const writeNote = async ($: EngineInterface, deadline: number, by?: 'auto-compact'): Promise<{ path: string; text: string } | { reason: string }> => {
-  await update($, handoff, prev => ({ ...prev, status: 'writing', forExpiresAt: deadline, by }))
+  await update($, handoff, (prev): Handoff => ({ ...prev, status: 'writing', forExpiresAt: deadline, by }))
   const r = await $.model.fork({ prompt: await handoffPrompt($) })
   if (!r.isAnswered || !r.text.trim()) {
-    await update($, handoff, prev => ({ ...prev, status: 'failed' }))
+    await update($, handoff, (prev): Handoff => ({ ...prev, status: 'failed' }))
     return {
       reason: r.isAnswered
         ? 'the note came back empty'
@@ -280,7 +280,7 @@ const writeNote = async ($: EngineInterface, deadline: number, by?: 'auto-compac
   for (const n of await listNotes($)) {
     if (n.path !== path && n.path.endsWith(`-${sid}.md`)) await deleteFile($, n.path)
   }
-  await update($, handoff, () => ({ status: 'saved', path, forExpiresAt: deadline, by }))
+  await update($, handoff, (): Handoff => ({ status: 'saved', path, forExpiresAt: deadline, by }))
   return { path, text: r.text.trim() }
 }
 
@@ -363,7 +363,7 @@ const applyNote = async ($: EngineInterface, text: string): Promise<{ isApplied:
       pendingNote = null
     }
   }
-  await update($, handoff, prev => ({ ...prev, status: 'unapplied' }))
+  await update($, handoff, (prev): Handoff => ({ ...prev, status: 'unapplied' }))
   $.ui.log(`jimal-session: the handover note was not applied: ${reason}`, { to: 'debug' })
   return { isApplied: false, reason }
 }
@@ -846,19 +846,23 @@ const scheduleCheck = async ($: EngineInterface, text: string): Promise<void> =>
   const mine = ++checkSeq
   checkTimer = $.clock.after(CHECK_DEBOUNCE_MS, () => {
     void (async () => {
-      await update($, check, () => ({ segments: [], text: draft, status: 'checking' }))
+      await update($, check, (): Check => ({ segments: [], text: draft, status: 'checking' }))
       const proof = await proofread($, draft).catch(() => null)
       if (mine !== checkSeq) return
-      await update($, check, () => ({ segments: proof?.segments ?? [], notes: proof?.notes ?? [], natural: proof?.natural ?? [], text: draft, status: 'ready' }))
+      await update($, check, (): Check => ({ segments: proof?.segments ?? [], notes: proof?.notes ?? [], natural: proof?.natural ?? [], text: draft, status: 'ready' }))
     })().catch(() => undefined)
   })
 }
 
 // The check as the reply opens with it: the marked text (when there were errors), then the
 // reasons and the more natural phrasings.
-const fixContext = (proof: Proof) =>
+// `where`: the prompt the context is about is above it (riding beside the prompt), or follows
+// it (a held prompt, sent again after a compaction with this row just before it).
+type Where = 'above' | 'below'
+const thePrompt = (where: Where) => (where === 'above' ? 'the prompt above' : 'the prompt that follows this note')
+const fixContext = (proof: Proof, where: Where = 'above') =>
   [
-    '[jimal-session] The person is learning English. The prompt above was reviewed by an English tutor: what follows is the corrected version with each change marked (~~removed~~ **added**), where there were errors, then why, then more natural ways to say some phrases.',
+    `[jimal-session] The person is learning English. ${thePrompt(where).replace(/^t/, 'T')} was reviewed by an English tutor: what follows is the corrected version with each change marked (~~removed~~ **added**), where there were errors, then why, then more natural ways to say some phrases.`,
     'Open your reply with the heading `**Prompt check**`, then everything below exactly as given, then a line holding only `---`, and only then answer the prompt. Do not comment on the review.',
     'This holds for this one prompt only and is not a standing rule: a later prompt gets a Prompt check only when it carries its own review from jimal-session. Never write one yourself, and never translate or review a prompt on your own; keep that out of any summary of this conversation.',
     '',
@@ -922,12 +926,50 @@ const runPluginUpdate = async ($: EngineInterface): Promise<void> => {
   }
 }
 
-const shapeContext = (shaped: string) =>
-  ['[jimal-session] A small model arranged the prompt above into sections, which follow. They add nothing: the prompt as typed is what the person meant, and where the two differ it wins.', '', shaped].join('\n')
+const shapeContext = (shaped: string, where: Where = 'above') =>
+  [`[jimal-session] A small model arranged ${thePrompt(where)} into sections, which follow. They add nothing: the prompt as typed is what the person meant, and where the two differ it wins.`, '', shaped].join('\n')
 
 // ---------------------------------------------------------------------------
 // The `usage` tool: the band's figures as text the model can read, for when the person
 // asks about their limits, the cache or the cost (the band is drawn for the person alone).
+
+// Fix English and Shape prompt on the words typed: the text to send (without the `++` that asks
+// for shaping) and the blocks that ride with it, corrections first, the arrangement after.
+// `where` says where those blocks sit against the prompt they are about.
+const promptExtras = async ($: EngineInterface, text: string, where: Where): Promise<{ body: string; added: string[] }> => {
+  const sw = await read($, promptSwitches)
+  const isMarked = SHAPE_MARK.test(text)
+  const body = isMarked ? text.replace(SHAPE_MARK, '') : text
+  const added: string[] = []
+
+  // Fix English first: the draft's check, usually ready by Enter, stands for the text as
+  // sent; another is run only when it differs. It runs whether or not the prompt is shaped.
+  if (sw.fixEnglish && isEnglish(body) && (sw.inReply || sw.inPane)) {
+    checkTimer?.cancel()
+    checkTimer = null
+    checkSeq += 1
+    const live = await read($, check)
+    const proof: Proof =
+      live && live.text === draftOf(text) && live.status !== 'checking'
+        ? { segments: live.segments, notes: live.notes ?? [], natural: live.natural ?? [] }
+        : ((await proofread($, body.trim()).catch(() => null)) ?? { segments: [], notes: [], natural: [] })
+    await update($, check, (): Check => ({ ...proof, text: draftOf(text), status: 'submitted' }))
+    if (proof.segments.length > 0 || proof.natural.length > 0) {
+      // Into the mistake log for review; a failed write never holds the prompt up.
+      await logProof($, body, proof).catch(() => undefined)
+      if (sw.inPane) await $.ui.open({ id: PANE, title: 'Prompt check' }).catch(() => undefined)
+      if (sw.inReply) added.push(fixContext(proof, where))
+    }
+  }
+
+  // Shaped (the switch on, or the prompt ending in `++`): the prompt goes as typed, the
+  // arranged version rides with it, after the corrections.
+  if ((sw.shapePrompt || isMarked) && body.trim().length >= MIN_SHAPE_CHARS) {
+    const shaped = await shapeText($, body).catch(() => null)
+    if (shaped) added.push(shapeContext(shaped, where))
+  }
+  return { body, added }
+}
 
 // ---------------------------------------------------------------------------
 // Auto-compact: the context is replaced by a handover note at two moments, while the cache
@@ -1035,16 +1077,34 @@ const compactFirst = async (
   if (!isSubstantial(text) || (await $.session.turns().catch(() => 0)) === 0) return null
   if (await autoCompactBar($)) return null
   if (!(await isNewTask($, text))) return null
-  // A plugin's prompt is not shaped, so the `++` that asks for it is not passed on.
-  const again = text.replace(SHAPE_MARK, '')
+  // Fix English and Shape prompt now, as for any typed prompt: a plugin's prompt carries no
+  // context, so what would ride beside it goes in as a row of its own just before it.
+  const extras = await promptExtras($, text, 'below').catch(() => ({ body: text.replace(SHAPE_MARK, ''), added: [] as string[] }))
+  const again = extras.body
   $.clock.after(APPLY_DELAY_MS, () => {
     void (async () => {
       // The rules again, at the moment of compacting: another note, or the switch turned off,
       // may have come in while the small model judged the prompt.
       if (!(await autoCompactBar($).catch(() => 'unknown'))) await runAutoCompact($).catch(() => false)
+      let isReviewed = false
+      if (extras.added.length > 0) {
+        isReviewed = await $.session
+          .append({ message: { type: 'user', content: [{ type: 'text', text: extras.added.join('\n\n') }] } })
+          .then(r => !(r && typeof r === 'object' && 'deny' in r && r.deny))
+          .catch((err: unknown) => {
+            $.ui.log(`jimal-session: the held prompt's review could not be added: ${String((err as Error)?.message ?? err)}`, { to: 'debug' })
+            return false
+          })
+      }
       // The prompt goes again whether or not the note was applied: it is never lost.
       const sent = await $.prompt.submit({ text: again, asUser: true }).catch(() => null)
       if (sent && !sent.drop) return
+      // Not sent: the review row describes a prompt that does not follow, so it is withdrawn.
+      if (isReviewed) {
+        await $.session
+          .append({ message: { type: 'user', content: [{ type: 'text', text: '[jimal-session] Disregard the review and arrangement just above: the prompt they were about was not sent. Treat the next prompt on its own.' }] } })
+          .catch(() => undefined)
+      }
       // Back into the box at the cursor, beside whatever the person has typed since.
       const filled = await $.prompt.fill({ text: again, mode: 'insert' }).catch(() => null)
       if (filled?.isFilled) {
@@ -1275,41 +1335,9 @@ export const register: Register = on => {
     const withPrompt = async (p: typeof e) => {
       const e = p
       if (e.command || e.isMeta || !isTyped(e)) return next(e)
-      const sw = await read($, promptSwitches)
       // What the person typed; the host's leading blocks go on before it as they came.
       const { prefix, typed: text } = splitTyped(e.text)
-      // The prompt as typed, without the `++` that asks for shaping; it is what goes to the model.
-      const isMarked = SHAPE_MARK.test(text)
-      const body = isMarked ? text.replace(SHAPE_MARK, '') : text
-      const added: string[] = []
-
-      // Fix English first: the draft's check, usually ready by Enter, stands for the text as
-      // sent; another is run only when it differs. It runs whether or not the prompt is shaped.
-      if (sw.fixEnglish && isEnglish(body) && (sw.inReply || sw.inPane)) {
-        checkTimer?.cancel()
-        checkTimer = null
-        checkSeq += 1
-        const live = await read($, check)
-        const proof: Proof =
-          live && live.text === draftOf(text) && live.status !== 'checking'
-            ? { segments: live.segments, notes: live.notes ?? [], natural: live.natural ?? [] }
-            : ((await proofread($, body.trim()).catch(() => null)) ?? { segments: [], notes: [], natural: [] })
-        await update($, check, () => ({ ...proof, text: draftOf(text), status: 'submitted' }))
-        if (proof.segments.length > 0 || proof.natural.length > 0) {
-          // Into the mistake log for review; a failed write never holds the prompt up.
-          await logProof($, body, proof).catch(() => undefined)
-          if (sw.inPane) await $.ui.open({ id: PANE, title: 'Prompt check' }).catch(() => undefined)
-          if (sw.inReply) added.push(fixContext(proof))
-        }
-      }
-
-      // Shaped (the switch on, or the prompt ending in `++`): the prompt goes as typed, the
-      // arranged version rides beside it, after the corrections.
-      if ((sw.shapePrompt || isMarked) && body.trim().length >= MIN_SHAPE_CHARS) {
-        const shaped = await shapeText($, body).catch(() => null)
-        if (shaped) added.push(shapeContext(shaped))
-      }
-
+      const { body, added } = await promptExtras($, text, 'above')
       if (body === text && added.length === 0) return next(e)
       return next({ ...e, text: prefix + body, ...(added.length > 0 ? { context: [...(e.context ?? []), ...added] } : {}) })
     }
@@ -1439,7 +1467,9 @@ export const register: Register = on => {
     const below = drawn && typeof drawn === 'object' && (drawn as { type?: string }).type !== 'engine' ? drawn : null
 
     const ui = $.ui.resolve(e)
-    const { Box, Text, Button, Client } = ui
+    const { Box, Text, Button } = ui
+    // The middle's own module, where the surface draws one; elsewhere a plain line.
+    const Client = 'Client' in ui ? ui.Client : null
     const at = Math.max(await read($, now), await $.clock.now())
     const deadline = await read($, expiresAt)
     const left = deadline === null ? null : deadline - at
@@ -1511,7 +1541,13 @@ export const register: Register = on => {
     // a narrow window never wraps it.
     const middleBox = showMiddle ? (
       <Box key="middle-slot" flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} minWidth={MIN_MIDDLE_W} height={1} overflow="hidden">
-        <Client key="middle" module="./middle.tsx" props={{ list: listText, working, width: 0 }} width="100%" height={1} />
+        {Client ? (
+          <Client key="middle" module="./middle.tsx" props={{ list: listText, working, width: 0 }} width="100%" height={1} />
+        ) : (
+          <Text key="middle" wrap="truncate" color={working ? AMBER : undefined} dimColor={!working}>
+            {middleText}
+          </Text>
+        )}
       </Box>
     ) : null
 
@@ -1612,7 +1648,7 @@ export const register: Register = on => {
         </Box>
       </Box>
     )
-    const box = (key: string, title: string, rows: unknown[]) => (
+    const box = (key: string, title: string, rows: RenderChildren[]) => (
       <Box key={`${key}-box`} flexDirection="column" borderStyle="round" borderColor={GREY} borderDimColor paddingX={1} minWidth={BOX_W} flexShrink={0}>
         <Text bold>{title}</Text>
         {rows}

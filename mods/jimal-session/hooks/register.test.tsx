@@ -5,7 +5,8 @@ import { diffWords, markChanges } from './register'
 
 const START = Date.parse('2026-10-28T10:00:00Z')
 const MIN = 60 * 1000
-const BAND = { component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120 } as never } as const
+const BAND_PROPS = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120 }
+const BAND = { component: 'AbovePrompt', props: BAND_PROPS as never } as const
 
 type World = {
   forks: string[]
@@ -19,6 +20,7 @@ type World = {
   closes: string[]
   submits: { text: string; origin?: unknown }[]
   fills: string[]
+  appends: string[]
 }
 
 // A session in E:\AI workflow on Windows, with the fork, files and commands recorded.
@@ -27,7 +29,7 @@ async function session(
   on: On,
   opts: { fork?: string; forkReason?: string; skill?: string; weekLeftMs?: number; noUsage?: boolean; weekOnly?: boolean; context?: Record<string, unknown>; cost?: { usd: number }; settings?: Record<string, unknown>; store?: Record<string, unknown>; files?: Record<string, string>; run?: (argv: string[]) => Partial<{ exitCode: number; stdout: string; stderr: string }> | undefined; reply?: string | ((prompt: string, system: string) => string); fail?: boolean; delayMs?: number; coldFork?: boolean; compactOk?: boolean; messages?: { role: string; text: string }[]; refusePluginPrompt?: boolean; refuseFill?: boolean; turnDuringFork?: boolean } = {},
 ) {
-  const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store }, completions: [], opens: [], closes: [], submits: [], fills: [] }
+  const world: World = { forks: [], writes: { ...opts.files }, runs: [], compacts: [], toasts: [], store: { ...opts.store }, completions: [], opens: [], closes: [], submits: [], fills: [], appends: [] }
   const clock = mock.clock(on, { now: START })
   mock.env(on, { USERPROFILE: 'C:\\Users\\me' })
   on('session.start', async () => ({ cwd: 'E:\\AI workflow' }) as never)
@@ -110,6 +112,11 @@ async function session(
     world.submits.push({ text, origin })
     if (opts.refusePluginPrompt && (origin as { kind?: string } | undefined)?.kind === 'plugin') return { drop: 'test: busy' } as never
     return (context ? { text, context } : { text }) as never
+  })
+  on('session.append', (_$, e, next) => {
+    const content = (e as { message: { content: { text?: string }[] } }).message.content
+    world.appends.push(content.map(b => b.text ?? '').join('\n'))
+    return next(e)
   })
   on('prompt.fill', (_$, e) => {
     world.fills.push((e as { text: string }).text)
@@ -337,7 +344,7 @@ test('compaction: the marked one is answered with the note, any other goes on', 
 test('band: a narrow window drops the figures one by one, the buttons stay', async ($, on) => {
   await session($, on)
   const shownAt = async (bodyColumns: number) => {
-    const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND.props, bodyColumns } as never })
+    const ui = await $.ui.mount({ plugin: 'jimal-session', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND_PROPS, bodyColumns } as never })
     const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
     const switches = await ui.find({ key: 'details' })
     await ui.unmount()
@@ -889,6 +896,39 @@ test('the desktop\'s leading reminder: the prompt still counts as typed; checked
   expect(out.drop).toContain('new task')
   await clock.advance(2000)
   expect(world.submits.some(s => s.text === text && (s.origin as { kind?: string } | undefined)?.kind === 'plugin')).toBe(true)
+})
+
+test('auto-compact: a held prompt keeps its Fix English review and its arrangement, in a row just before it is sent again', async ($, on) => {
+  const arranged = '**Tasks**\n- recommend science fiction novels for a beginner'
+  const reply = (p: string, s: string) => (s.includes('starts unrelated work') ? 'NEW' : s.includes('English tutor') ? p.replace('scince', 'science') : arranged)
+  const { clock, world } = await session($, on, { compactOk: true, context: BIG, messages: WORK, reply, store: { prompt: { ...PROMPT_ON, fixEnglish: true, shapePrompt: true } } })
+  await press($, 'auto-compact')
+  await answer($)
+  const out = (await $.prompt.submit({ text: 'recommend a few scince fiction novels for a beginner ++', origin: { kind: 'composer' } } as never)) as { drop?: string }
+  expect(out.drop).toContain('new task')
+  await clock.advance(2000)
+  // The review and the arrangement, before the prompt, saying so.
+  expect(world.appends).toHaveLength(1)
+  expect(world.appends[0]).toContain('The prompt that follows this note was reviewed')
+  expect(world.appends[0]).toContain('~~scince~~ **science**')
+  expect(world.appends[0]).toContain('arranged the prompt that follows this note')
+  expect(world.appends[0]).toContain(arranged)
+  // The prompt as typed, without the `++` mark, after it.
+  const again = world.submits.filter(s => (s.origin as { kind?: string } | undefined)?.kind === 'plugin')
+  expect(again.map(s => s.text)).toEqual(['recommend a few scince fiction novels for a beginner'])
+})
+
+test('auto-compact: a held prompt that cannot be sent again has its review withdrawn', async ($, on) => {
+  const reply = (p: string, s: string) => (s.includes('starts unrelated work') ? 'NEW' : p.replace('scince', 'science'))
+  const { clock, world } = await session($, on, { compactOk: true, context: BIG, messages: WORK, reply, refusePluginPrompt: true, store: { prompt: { ...PROMPT_ON, fixEnglish: true } } })
+  await press($, 'auto-compact')
+  await answer($)
+  await $.prompt.submit({ text: 'recommend a few scince fiction novels for a beginner', origin: { kind: 'composer' } } as never)
+  await clock.advance(2000)
+  expect(world.appends).toHaveLength(2)
+  expect(world.appends[0]).toContain('~~scince~~ **science**')
+  expect(world.appends[1]).toContain('Disregard the review')
+  expect(world.fills).toContain('recommend a few scince fiction novels for a beginner')
 })
 
 test('auto-compact: a related prompt, a short one, a command or one typed over a running turn goes on untouched', async ($, on) => {
